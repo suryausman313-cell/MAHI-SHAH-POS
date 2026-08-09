@@ -12,10 +12,16 @@ const columns = [
 export default function Kitchen(){
   const [orders,setOrders] = useState<Order[]>([])
   const [filter,setFilter] = useState('all')
+  const [lastCount,setLastCount]=useState(0)
 
   const load = async()=>{
     const data = await api<Order[]>('/orders')
-    setOrders(data.filter(x=>!['completed','cancelled'].includes(x.status)))
+    const active=data.filter(x=>!['completed','cancelled','refunded','held'].includes(x.status))
+    if(active.filter(x=>x.status==='new').length>lastCount){
+      try{const a=new AudioContext();const o=a.createOscillator();const g=a.createGain();o.connect(g);g.connect(a.destination);o.frequency.value=880;g.gain.value=.15;o.start();o.stop(a.currentTime+.35)}catch{}
+    }
+    setLastCount(active.filter(x=>x.status==='new').length)
+    setOrders(active)
   }
 
   useEffect(()=>{

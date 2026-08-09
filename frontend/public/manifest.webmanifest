@@ -1,1 +1,9 @@
-{"name":"Restaurant POS","short_name":"POS","start_url":"/","display":"standalone","background_color":"#f4f6f8","theme_color":"#111827","icons":[]}
+{
+  "name": "MAHI POS",
+  "short_name": "MAHI POS",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f6f8",
+  "theme_color": "#111827",
+  "icons": []
+}

@@ -5,6 +5,7 @@ const links = [
   ['/waiter', '☰', 'Waiter'],
   ['/kitchen', '♨', 'Kitchen'],
   ['/tables', '▤', 'Tables'],
+  ['/customer-display', '▣', 'Display'],
   ['/admin', '⚙', 'Admin'],
 ]
 

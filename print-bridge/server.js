@@ -53,6 +53,25 @@ const server = http.createServer((req, res) => {
     return json(res, 200, {ok:true, service:'MAHI POS Printer Bridge'});
   }
 
+
+  if (req.method === 'POST' && req.url === '/drawer') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body || '{}');
+        if (!data.ip) return json(res, 400, {error:'Printer IP is required'});
+        const port = Number(data.port || 9100);
+        const pulse = Buffer.from([0x1b, 0x70, 0x00, 0x19, 0xfa]);
+        await sendRaw(data.ip, port, pulse);
+        return json(res, 200, {ok:true, ip:data.ip, port});
+      } catch (e) {
+        return json(res, 500, {error:e.message || String(e)});
+      }
+    });
+    return;
+  }
+
   if (req.method === 'POST' && req.url === '/print') {
     let body = '';
     req.on('data', chunk => body += chunk);

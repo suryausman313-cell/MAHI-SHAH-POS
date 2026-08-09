@@ -52,6 +52,35 @@ function VatReportCard(){
  </div>
 }
 
+
+function DayPartsSalesCard({settings,onSettingsChange,onSave}:{settings:any;onSettingsChange:(x:any)=>void;onSave:()=>void}){
+ const[today,setToday]=useState(()=>new Date().toISOString().slice(0,10))
+ const[data,setData]=useState<any>(null)
+ const load=()=>api(`/reports/day-parts?business_date=${today}`).then(setData).catch((e:any)=>alert(e.message))
+ useEffect(()=>{load()},[])
+ const block=(x:any)=>x?<div className="daypart-box">
+   <div className="daypart-title"><div><b>{x.label}</b><span>{x.start} – {x.end}</span></div><strong>{money(x.gross_sales)}</strong></div>
+   <div className="daypart-stats"><span>Cash <b>{money(x.cash)}</b></span><span>Card <b>{money(x.card)}</b></span><span>Orders <b>{x.orders}</b></span></div>
+ </div>:null
+ return <div className="pro-card dayparts-card">
+   <div className="pro-card-head"><div><h3>Morning / Evening Sales</h3><p>One shift stays open all day; these are time-based sales sections.</p></div></div>
+   <div className="dayparts-settings">
+     <label>Morning Name<input value={settings.morning_sales_label||'Morning'} onChange={e=>onSettingsChange({...settings,morning_sales_label:e.target.value})}/></label>
+     <label>From<input type="time" value={settings.morning_sales_start||'08:00'} onChange={e=>onSettingsChange({...settings,morning_sales_start:e.target.value})}/></label>
+     <label>To<input type="time" value={settings.morning_sales_end||'16:00'} onChange={e=>onSettingsChange({...settings,morning_sales_end:e.target.value})}/></label>
+     <label>Evening Name<input value={settings.evening_sales_label||'Evening'} onChange={e=>onSettingsChange({...settings,evening_sales_label:e.target.value})}/></label>
+     <label>From<input type="time" value={settings.evening_sales_start||'16:00'} onChange={e=>onSettingsChange({...settings,evening_sales_start:e.target.value})}/></label>
+     <label>To<input type="time" value={settings.evening_sales_end||'01:00'} onChange={e=>onSettingsChange({...settings,evening_sales_end:e.target.value})}/></label>
+     <button className="primary-btn" onClick={async()=>{await onSave();load()}}>Save Times</button>
+   </div>
+   <div className="dayparts-date"><input type="date" value={today} onChange={e=>setToday(e.target.value)}/><button className="secondary-btn" onClick={load}>Show Date</button></div>
+   {data&&<div className="dayparts-grid">{block(data.morning)}{block(data.evening)}
+     <div className="daypart-box full"><div className="daypart-title"><div><b>Full Day</b><span>Whole business date</span></div><strong>{money(data.full_day.gross_sales)}</strong></div>
+     <div className="daypart-stats"><span>Cash <b>{money(data.full_day.cash)}</b></span><span>Card <b>{money(data.full_day.card)}</b></span><span>Orders <b>{data.full_day.orders}</b></span></div></div>
+   </div>}
+ </div>
+}
+
 export default function Admin(){
  const[tab,setTab]=useState<Tab>('dashboard')
  const[report,setReport]=useState<any>({})
@@ -72,7 +101,9 @@ export default function Admin(){
  const[deals,setDeals]=useState<any[]>([])
  const[transfers,setTransfers]=useState<any[]>([])
  const[settings,setSettings]=useState<any>({
-   shop_name:'',shop_phone:'',shop_address:'',trn:'',vat_percent:5,vat_inclusive:true,cashier_card_size:'auto',
+   shop_name:'',shop_phone:'',shop_address:'',trn:'',vat_percent:5,vat_inclusive:true,cashier_card_size:'auto',business_timezone_offset_minutes:240,
+   morning_sales_label:'Morning',morning_sales_start:'08:00',morning_sales_end:'16:00',
+   evening_sales_label:'Evening',evening_sales_start:'16:00',evening_sales_end:'01:00',
    receipt_footer:'Thank you!',printer_ip:'',printer_port:9100,auto_print:false,
    kitchen_sound:true,require_shift:true,currency:'AED',
    payment_terminal_provider:'',payment_terminal_enabled:false,auto_cash_drawer:true
@@ -167,6 +198,7 @@ export default function Admin(){
        </div>
       </div>
 
+      <DayPartsSalesCard settings={settings} onSettingsChange={setSettings} onSave={saveSettings}/>
       <div className="pro-stat-grid">
        <Stat label="Net Sales" value={money(report.sales)} sub={`${report.orders||0} orders`} icon="↗" tone="blue"/>
        <Stat label="Open Orders" value={openOrders} sub="Live in system" icon="▤" tone="purple"/>

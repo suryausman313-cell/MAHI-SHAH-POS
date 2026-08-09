@@ -10,12 +10,41 @@ export async function api<T=any>(
   path:string,
   options:RequestInit={}
 ):Promise<T>{
-  const res = await fetch(API + path, options)
-  const data = await res.json().catch(()=>({}))
-  if(!res.ok){
-    throw new Error((data as any).detail || (data as any).error || 'Request failed')
+  try{
+    const res = await fetch(API + path, options)
+    const data = await res.json().catch(()=>({}))
+    if(!res.ok){
+      throw new Error((data as any).detail || (data as any).error || 'Request failed')
+    }
+    return data as T
+  }catch(err){
+    if(path==='/orders' && (options.method||'GET').toUpperCase()==='POST'){
+      const queue=JSON.parse(localStorage.getItem('mahi_offline_orders')||'[]')
+      queue.push({path,options,queued_at:new Date().toISOString()})
+      localStorage.setItem('mahi_offline_orders',JSON.stringify(queue))
+      throw new Error('Internet unavailable. Order saved in offline queue; reconnect and sync before closing shift.')
+    }
+    throw err
   }
-  return data as T
+}
+
+export async function syncOfflineOrders(){
+  const queue:any[]=JSON.parse(localStorage.getItem('mahi_offline_orders')||'[]')
+  if(!queue.length)return {synced:0}
+  const remaining:any[]=[];let synced=0
+  for(const job of queue){
+    try{
+      const res=await fetch(API+job.path,job.options)
+      if(!res.ok)throw new Error()
+      synced++
+    }catch{remaining.push(job)}
+  }
+  localStorage.setItem('mahi_offline_orders',JSON.stringify(remaining))
+  return {synced,remaining:remaining.length}
+}
+
+if(typeof window!=='undefined'){
+  window.addEventListener('online',()=>{syncOfflineOrders().catch(()=>{})})
 }
 
 export async function sendToIpPrinter(order:any, settings:Settings){

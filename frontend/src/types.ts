@@ -4,6 +4,9 @@ export type MenuItem = {
   category:string
   price:number
   active:boolean
+  barcode?:string
+  sku?:string
+  modifiers?:{id:number;name:string;price:number}[]
 }
 
 export type PosTable = {
@@ -45,6 +48,13 @@ export type Order = {
   table_id?:number|null
   waiter_id?:number|null
   payment_method:string
+  cash_paid?:number
+  card_paid?:number
+  refund_amount?:number
+  customer_id?:number|null
+  customer?:string|null
+  shift_id?:number|null
+  delivery_address?:string
   subtotal:number
   discount:number
   vat:number
@@ -63,4 +73,10 @@ export type Settings = {
   printer_ip:string
   printer_port:number
   auto_print:boolean
+  trn?:string
+  kitchen_sound?:boolean
+  require_shift?:boolean
+  currency?:string
+  payment_terminal_provider?:string
+  payment_terminal_enabled?:boolean
 }

@@ -17,7 +17,7 @@ const tabs:{key:Tab;icon:string;label:string;group:string}[]=[
  {key:'expenses',icon:'↓',label:'Expenses',group:'MANAGE'},
  {key:'staff',icon:'♙',label:'Staff',group:'MANAGE'},
  {key:'reports',icon:'↗',label:'Reports',group:'INSIGHTS'},
- {key:'coupons',icon:'%',label:'Coupons',group:'INSIGHTS'},
+ 
  {key:'audit',icon:'≡',label:'Audit Log',group:'INSIGHTS'},
  {key:'advanced',icon:'⚒',label:'Advanced',group:'SYSTEM'},
  {key:'printer',icon:'▣',label:'Printer & Shop',group:'SYSTEM'},
@@ -29,6 +29,28 @@ const Stat=({label,value,sub,icon,tone='blue'}:{label:string,value:any,sub?:stri
    <div><span>{label}</span><strong>{value}</strong>{sub&&<small>{sub}</small>}</div>
  </div>
 )
+
+
+function VatReportCard(){
+ const[data,setData]=useState<any>(null)
+ const[start,setStart]=useState(()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`})
+ const[end,setEnd]=useState(()=>new Date().toISOString().slice(0,10))
+ const load=()=>api(`/reports/uae-vat?start=${start}&end=${end}`).then(setData).catch((e:any)=>alert(e.message))
+ useEffect(()=>{load()},[])
+ return <div className="pro-card uae-vat-card">
+  <div className="pro-card-head"><div><h3>UAE VAT Return Summary</h3><p>Sales/output VAT summary for FTA filing support</p></div></div>
+  <div className="vat-report-controls"><input type="date" value={start} onChange={e=>setStart(e.target.value)}/><input type="date" value={end} onChange={e=>setEnd(e.target.value)}/><button className="secondary-btn" onClick={load}>Refresh</button></div>
+  {data&&<div className="vat-report-grid">
+   <div><span>Sales incl. VAT</span><b>{money(data.standard_rated_sales_including_vat)}</b></div>
+   <div><span>Sales excl. VAT</span><b>{money(data.standard_rated_sales_excluding_vat)}</b></div>
+   <div><span>Output VAT</span><b>{money(data.output_vat_collected)}</b></div>
+   <div><span>Refunds</span><b>{money(data.refunds)}</b></div>
+   <div><span>Expenses</span><b>{money(data.expenses_total)}</b></div>
+   <div><span>Input VAT</span><b>Enter from tax invoices</b></div>
+  </div>}
+  <p className="helper">This report prepares the sales/output side. Recoverable input VAT should come from valid supplier tax invoices, not from automatically assuming 5% of every expense.</p>
+ </div>
+}
 
 export default function Admin(){
  const[tab,setTab]=useState<Tab>('dashboard')
@@ -50,7 +72,7 @@ export default function Admin(){
  const[deals,setDeals]=useState<any[]>([])
  const[transfers,setTransfers]=useState<any[]>([])
  const[settings,setSettings]=useState<any>({
-   shop_name:'',shop_phone:'',shop_address:'',trn:'',vat_percent:5,
+   shop_name:'',shop_phone:'',shop_address:'',trn:'',vat_percent:5,vat_inclusive:true,cashier_card_size:'auto',
    receipt_footer:'Thank you!',printer_ip:'',printer_port:9100,auto_print:false,
    kitchen_sound:true,require_shift:true,currency:'AED',
    payment_terminal_provider:'',payment_terminal_enabled:false,auto_cash_drawer:true
@@ -228,7 +250,7 @@ export default function Admin(){
 
       <div className="control-section-grid">
        <div className="control-card"><h3>Tax & Checkout</h3>
-        <label><span><b>VAT</b><small>Show and calculate VAT</small></span><input type="checkbox" checked={settings.vat_enabled!==false} onChange={e=>setSettings({...settings,vat_enabled:e.target.checked})}/></label>
+        <label><span><b>VAT</b><small>Show and calculate VAT</small></span><input type="checkbox" checked={settings.vat_enabled!==false} onChange={e=>setSettings({...settings,vat_enabled:e.target.checked})}/></label><label><span><b>VAT Inclusive Pricing</b><small>Menu price is final price; VAT is extracted inside it</small></span><input type="checkbox" checked={settings.vat_inclusive!==false} onChange={e=>setSettings({...settings,vat_inclusive:e.target.checked})}/></label>
         <label><span><b>Discounts</b><small>Cashier discount field</small></span><input type="checkbox" checked={settings.allow_discounts!==false} onChange={e=>setSettings({...settings,allow_discounts:e.target.checked})}/></label>
         <label><span><b>Coupons</b><small>Coupon code support</small></span><input type="checkbox" checked={settings.allow_coupons!==false} onChange={e=>setSettings({...settings,allow_coupons:e.target.checked})}/></label>
         <label><span><b>Split Payment</b><small>Cash + card payments</small></span><input type="checkbox" checked={settings.allow_split_payment!==false} onChange={e=>setSettings({...settings,allow_split_payment:e.target.checked})}/></label>
@@ -298,6 +320,8 @@ export default function Admin(){
     </>}
 
     {tab==='reports'&&<>
+      <VatReportCard />
+
       <div className="pro-page-head"><div><h2>Reports</h2><p>Sales and payment performance</p></div></div>
       <div className="pro-report-hero"><div><span>Today's Net Sales</span><strong>{money(report.sales)}</strong><small>{report.orders||0} orders</small></div><div className="pay-breakdown"><div><span>Cash</span><b>{money(report.cash)}</b></div><div className="bar"><i style={{width:`${cashPct}%`}}/></div><div><span>Card</span><b>{money(report.card)}</b></div><div className="bar alt"><i style={{width:`${cardPct}%`}}/></div></div></div>
       <div className="pro-stat-grid compact-stats"><Stat label="VAT" value={money(report.vat)} icon="%"/><Stat label="Discounts" value={money(report.discounts)} icon="−"/><Stat label="Refunds" value={money(report.refunds)} icon="↶"/><Stat label="After Expenses" value={money(report.net_after_expenses)} icon="◎"/></div>

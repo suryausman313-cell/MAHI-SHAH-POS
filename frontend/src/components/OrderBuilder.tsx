@@ -57,10 +57,14 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
     const modTotal=(mods[i.id]||[]).map(id=>i.modifiers?.find(m=>m.id===id)?.price||0).reduce((a,b)=>a+b,0)
     return sum+(cart[i.id]||0)*(i.price+modTotal)
   },0),[cartLines,cart,mods])
-  const taxable=Math.max(0,subtotal-discount)
-  const vatRate=Number(settings?.vat_percent??5)
-  const vat=taxable*(vatRate/100)
-  const total=taxable+vat
+  const grossAfterDiscount=Math.max(0,subtotal-discount)
+  const vatRate=settings?.vat_enabled===false?0:Number(settings?.vat_percent??5)
+  const vatInclusive=settings?.vat_inclusive!==false
+  const vat=vatRate>0
+    ? (vatInclusive ? grossAfterDiscount-(grossAfterDiscount/(1+vatRate/100)) : grossAfterDiscount*(vatRate/100))
+    : 0
+  const taxable=vatInclusive?grossAfterDiscount-vat:grossAfterDiscount
+  const total=vatInclusive?grossAfterDiscount:taxable+vat
 
   const qty=(id:number,d:number)=>setCart(c=>({...c,[id]:Math.max(0,(c[id]||0)+d)}))
   const toggleMod=(itemId:number,modId:number)=>setMods(m=>{
@@ -184,7 +188,7 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
     return <div className="closed-screen"><div><b>Shop Closed</b><span>Admin has closed ordering. Admin can reopen it from Control Center.</span></div></div>
   }
 
-  return <div className={`pos-workspace ${cashierCompact?'cashier-clean-workspace':''}`}>
+  return <div className={`pos-workspace ${cashierCompact?'cashier-clean-workspace':''} card-${settings?.cashier_card_size||'auto'}`}>
     <div className="product-area">
       {cashierCompact&&isCashier&&<div className="cashier-clean-head">
         <button className="hamburger-btn" onClick={()=>setCashierMenuOpen(true)}>☰</button>
@@ -218,10 +222,11 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
       <div className="cart-lines">{!cartLines.length&&<div className="empty-cart"><div>🧾</div><strong>No items yet</strong><span>Tap a product to add it</span></div>}{cartLines.map(i=><div className="cart-line" key={i.id}><div className="cart-main"><strong>{i.name}</strong><small>{money(i.price)} each</small></div><div className="qty-stepper"><button onClick={()=>qty(i.id,-1)}>−</button><b>{cart[i.id]}</b><button onClick={()=>qty(i.id,1)}>+</button></div><strong>{money((cart[i.id]||0)*i.price)}</strong></div>)}</div>
       <div className="order-summary">
         <div className="customer-line"><select value={customerId||''} onChange={e=>setCustomerId(+e.target.value||undefined)}><option value="">No customer</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name} · {c.phone}</option>)}</select><button onClick={addCustomer}>+</button></div>
-        {type==='delivery'&&<input className="plain-input" placeholder="Delivery address" value={deliveryAddress} onChange={e=>setDeliveryAddress(e.target.value)}/>}
-        {settings?.allow_coupons!==false&&<input className="plain-input" placeholder="Coupon code" value={coupon} onChange={e=>setCoupon(e.target.value.toUpperCase())}/>}
+        {type==='delivery'&&{type==='delivery'&&<input className="plain-input" placeholder="Delivery address" value={address} onChange={e=>setAddress(e.target.value)}/>}}
+        
         {settings?.allow_discounts!==false&&<label><span>Discount</span><div className="money-input"><span>AED</span><input type="number" value={discount} onChange={e=>setDiscount(+e.target.value||0)}/></div></label>}
-        <div className="summary-row"><span>Subtotal</span><b>{money(subtotal)}</b></div>{settings?.vat_enabled!==false&&<div className="summary-row"><span>VAT {vatRate}%</span><b>{money(vat)}</b></div>}<div className="summary-row total"><span>Total</span><b>{money(total)}</b></div>
+        <div className="summary-row"><span>Subtotal</span><b>{money(subtotal)}</b></div>{settings?.vat_enabled!==false&&settings?.vat_inclusive!==false&&<div className="summary-row vat-included-line"><span>VAT Included</span><b></b></div>}
+        {settings?.vat_enabled!==false&&settings?.vat_inclusive===false&&<div className="summary-row"><span>VAT {vatRate}%</span><b>{money(vat)}</b></div>}<div className="summary-row total"><span>Total</span><b>{money(total)}</b></div>
         {isCashier&&<><div className="payment-switch">{['cash','card',...(settings?.allow_split_payment===false?[]:['split'])].map(x=><button key={x} className={pay===x?'active':''} onClick={()=>setPay(x)}>{x}</button>)}</div>{pay==='split'&&<div className="split-pay"><input type="number" placeholder="Cash" value={cashPaid||''} onChange={e=>setCashPaid(+e.target.value||0)}/><input type="number" placeholder="Card" value={cardPaid||''} onChange={e=>setCardPaid(+e.target.value||0)}/></div>}<button className="pay-button" onClick={()=>submit(false)} disabled={saving}>{saving?'Saving...':`SAVE ORDER · ${money(total)}`}</button>{settings?.allow_hold_orders!==false&&<button className="secondary-button" onClick={()=>submit(true)}>HOLD ORDER</button>}</>}{isWaiter&&<><button className="pay-button waiter-send" onClick={()=>submit(false)} disabled={saving}>{saving?'Sending...':'SEND ORDER TO KITCHEN'}</button>{settings?.allow_hold_orders!==false&&<button className="secondary-button" onClick={()=>submit(true)}>HOLD ORDER</button>}</>}
         {held.length>0&&<div className="held-box"><b>Held orders</b>{held.slice(0,5).map(h=><button key={h.id} onClick={()=>recall(h.id)}>Recall #{h.id} · {money(h.total)}</button>)}</div>}
       </div>

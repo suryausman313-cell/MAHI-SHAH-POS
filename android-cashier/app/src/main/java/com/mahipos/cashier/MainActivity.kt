@@ -90,6 +90,41 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+
+        @JavascriptInterface
+        fun openDrawer(jsonPayload: String): String {
+            return try {
+                val data = JSONObject(jsonPayload)
+                val ip = data.optString("ip").trim()
+                val port = data.optInt("port", 9100)
+
+                if (ip.isBlank()) {
+                    return JSONObject()
+                        .put("ok", false)
+                        .put("error", "Printer IP is empty")
+                        .toString()
+                }
+
+                // ESC/POS cash drawer pulse: ESC p m t1 t2
+                val pulse = byteArrayOf(
+                    0x1B.toByte(), 0x70.toByte(), 0x00.toByte(),
+                    0x19.toByte(), 0xFA.toByte()
+                )
+                sendRaw(ip, port, pulse)
+
+                JSONObject()
+                    .put("ok", true)
+                    .put("ip", ip)
+                    .put("port", port)
+                    .toString()
+            } catch (e: Exception) {
+                JSONObject()
+                    .put("ok", false)
+                    .put("error", e.message ?: e.javaClass.simpleName)
+                    .toString()
+            }
+        }
+
         private fun buildEscPos(lines: JSONArray, cut: Boolean): ByteArray {
             val out = ArrayList<Byte>()
             fun add(vararg b: Int) { b.forEach { out.add(it.toByte()) } }

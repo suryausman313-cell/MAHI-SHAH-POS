@@ -6,6 +6,9 @@ type Customer={id:number;name:string;phone:string;address:string;points:number}
 type Shift={id:number;opening_cash:number;expected_cash:number;cash_sales:number;card_sales:number}
 
 export default function OrderBuilder({waiterMode=false}:{waiterMode?:boolean}){
+  const loggedUser=(()=>{try{return JSON.parse(localStorage.getItem('mahi_user')||'null')}catch{return null}})()
+  const isCashier=loggedUser?.role==='cashier'||loggedUser?.role==='admin'||loggedUser?.role==='manager'
+  const isWaiter=loggedUser?.role==='waiter'||waiterMode
   const [menu,setMenu]=useState<MenuItem[]>([])
   const [tables,setTables]=useState<PosTable[]>([])
   const [staff,setStaff]=useState<Staff[]>([])
@@ -38,6 +41,7 @@ export default function OrderBuilder({waiterMode=false}:{waiterMode?:boolean}){
       api<any[]>('/orders/held/list')
     ])
     setMenu(m);setTables(t);setStaff(s);setCustomers(c);setSettings(st);setShift(sh);setHeld(h)
+    if(isWaiter&&loggedUser?.id)setWaiterId(loggedUser.id)
   }
   useEffect(()=>{load().catch(console.error)},[])
 
@@ -103,7 +107,7 @@ export default function OrderBuilder({waiterMode=false}:{waiterMode?:boolean}){
     }))
     if(!items.length){alert('Add items first');return}
     if(type==='dinein'&&!tableId){alert('Select table');return}
-    if(settings?.require_shift&&!shift){alert('Open shift first');return}
+    if(isCashier&&settings?.require_shift&&!shift){alert('Open shift first');return}
     if(pay==='split'&&Math.abs((cashPaid+cardPaid)-total)>.01){alert('Cash + Card must equal total');return}
     setSaving(true)
     try{
@@ -127,21 +131,29 @@ export default function OrderBuilder({waiterMode=false}:{waiterMode?:boolean}){
     await api(`/orders/${id}/recall`,{method:'POST'});await load();alert(`Order #${id} recalled to kitchen`)
   }
 
+  if(settings?.app_enabled===false){
+    return <div className="closed-screen"><div><b>POS Disabled</b><span>Admin has disabled the application.</span></div></div>
+  }
+  if(settings?.shop_open===false){
+    return <div className="closed-screen"><div><b>Shop Closed</b><span>Admin has closed ordering. Admin can reopen it from Control Center.</span></div></div>
+  }
+
   return <div className="pos-workspace">
     <div className="product-area">
-      <div className="shift-strip">
-        <div>{shift?<><b>Shift #{shift.id} OPEN</b><span>Expected cash {money(shift.expected_cash)}</span></>:<><b>No open shift</b><span>Open shift before sales</span></>}</div>
-        {shift?<button onClick={closeShift}>Close Shift</button>:<button onClick={openShift}>Open Shift</button>}
-      </div>
+      {isCashier&&<div className="shift-strip"><div>{shift?<><b>Shift #{shift.id} OPEN</b><span>Expected cash {money(shift.expected_cash)}</span></>:<><b>No open shift</b><span>Open shift before sales</span></>}</div>{shift?<button onClick={closeShift}>Close Shift</button>:<button onClick={openShift}>Open Shift</button>}</div>}
       <div className="pos-toolbar">
-        <div className="segment">{['takeaway','dinein','delivery'].map(v=><button key={v} disabled={waiterMode&&v!=='dinein'} className={type===v?'selected':''} onClick={()=>setType(v)}>{v==='dinein'?'Dine In':v[0].toUpperCase()+v.slice(1)}</button>)}</div>
+        <div className="segment">
+          {settings?.allow_takeaway!==false&&<button disabled={waiterMode} className={type==='takeaway'?'selected':''} onClick={()=>setType('takeaway')}>Takeaway</button>}
+          {settings?.allow_dinein!==false&&<button className={type==='dinein'?'selected':''} onClick={()=>setType('dinein')}>Dine In</button>}
+          {settings?.allow_delivery!==false&&<button disabled={waiterMode} className={type==='delivery'?'selected':''} onClick={()=>setType('delivery')}>Delivery</button>}
+        </div>
         <input className="search-box" placeholder="Search products..." value={search} onChange={e=>setSearch(e.target.value)}/>
         <div className="barcode-box"><input placeholder="Barcode" value={barcode} onChange={e=>setBarcode(e.target.value)} onKeyDown={e=>e.key==='Enter'&&scan()}/><button onClick={scan}>Scan</button></div>
         {type==='dinein'&&<select value={tableId||''} onChange={e=>setTableId(+e.target.value||undefined)}><option value="">Select table</option>{tables.map(t=><option key={t.id} value={t.id}>{t.name} · {t.status}</option>)}</select>}
-        <select value={waiterId||''} onChange={e=>setWaiterId(+e.target.value||undefined)}><option value="">No waiter</option>{staff.filter(s=>s.role==='waiter').map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>
+        {isWaiter?<div className="staff-fixed-pill">Waiter: {loggedUser?.name||'Current staff'}</div>:<select value={waiterId||''} onChange={e=>setWaiterId(+e.target.value||undefined)}><option value="">No waiter</option>{staff.filter(s=>s.role==='waiter').map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>}
       </div>
       <div className="category-tabs">{categories.map(c=><button key={c} className={category===c?'active':''} onClick={()=>setCategory(c)}>{c}</button>)}</div>
-      <div className="product-grid">{filtered.map(item=><div className="product-card-wrap" key={item.id}><button className="product-card" onClick={()=>qty(item.id,1)}><div className="product-photo"><span>{item.name[0]}</span></div><div className="product-info"><small>{item.category}</small><strong>{item.name}</strong><b>{money(item.price)}</b></div>{(cart[item.id]||0)>0&&<em>{cart[item.id]}</em>}</button>{(cart[item.id]||0)>0&&item.modifiers?.length?<div className="modifier-mini">{item.modifiers.map(m=><label key={m.id}><input type="checkbox" checked={(mods[item.id]||[]).includes(m.id)} onChange={()=>toggleMod(item.id,m.id)}/>{m.name} +{m.price}</label>)}</div>:null}</div>)}</div>
+      <div className="product-grid">{filtered.map(item=><div className="product-card-wrap" key={item.id}><button className="product-card" onClick={()=>qty(item.id,1)}><div className="product-photo">{item.image?<img src={item.image} alt={item.name}/>:<span>{item.name[0]}</span>}</div><div className="product-info"><small>{item.category}</small><strong>{item.name}</strong><b>{money(item.price)}</b></div>{(cart[item.id]||0)>0&&<em>{cart[item.id]}</em>}</button>{(cart[item.id]||0)>0&&item.modifiers?.length?<div className="modifier-mini">{item.modifiers.map(m=><label key={m.id}><input type="checkbox" checked={(mods[item.id]||[]).includes(m.id)} onChange={()=>toggleMod(item.id,m.id)}/>{m.name} +{m.price}</label>)}</div>:null}</div>)}</div>
     </div>
     <aside className="order-panel">
       <div className="order-panel-head"><div><span>Current order</span><strong>{type}</strong></div><button className="ghost-danger" onClick={()=>{setCart({});setMods({})}}>Clear</button></div>
@@ -149,13 +161,10 @@ export default function OrderBuilder({waiterMode=false}:{waiterMode?:boolean}){
       <div className="order-summary">
         <div className="customer-line"><select value={customerId||''} onChange={e=>setCustomerId(+e.target.value||undefined)}><option value="">No customer</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name} · {c.phone}</option>)}</select><button onClick={addCustomer}>+</button></div>
         {type==='delivery'&&<input className="plain-input" placeholder="Delivery address" value={deliveryAddress} onChange={e=>setDeliveryAddress(e.target.value)}/>}
-        <input className="plain-input" placeholder="Coupon code" value={coupon} onChange={e=>setCoupon(e.target.value.toUpperCase())}/>
-        <label><span>Discount</span><div className="money-input"><span>AED</span><input type="number" value={discount} onChange={e=>setDiscount(+e.target.value||0)}/></div></label>
-        <div className="summary-row"><span>Subtotal</span><b>{money(subtotal)}</b></div><div className="summary-row"><span>VAT {vatRate}%</span><b>{money(vat)}</b></div><div className="summary-row total"><span>Total</span><b>{money(total)}</b></div>
-        <div className="payment-switch">{['cash','card','split'].map(x=><button key={x} className={pay===x?'active':''} onClick={()=>setPay(x)}>{x}</button>)}</div>
-        {pay==='split'&&<div className="split-pay"><input type="number" placeholder="Cash" value={cashPaid||''} onChange={e=>setCashPaid(+e.target.value||0)}/><input type="number" placeholder="Card" value={cardPaid||''} onChange={e=>setCardPaid(+e.target.value||0)}/></div>}
-        <button className="pay-button" onClick={()=>submit(false)} disabled={saving}>{saving?'Saving...':`SAVE ORDER · ${money(total)}`}</button>
-        <button className="secondary-button" onClick={()=>submit(true)}>HOLD ORDER</button>
+        {settings?.allow_coupons!==false&&<input className="plain-input" placeholder="Coupon code" value={coupon} onChange={e=>setCoupon(e.target.value.toUpperCase())}/>}
+        {settings?.allow_discounts!==false&&<label><span>Discount</span><div className="money-input"><span>AED</span><input type="number" value={discount} onChange={e=>setDiscount(+e.target.value||0)}/></div></label>}
+        <div className="summary-row"><span>Subtotal</span><b>{money(subtotal)}</b></div>{settings?.vat_enabled!==false&&<div className="summary-row"><span>VAT {vatRate}%</span><b>{money(vat)}</b></div>}<div className="summary-row total"><span>Total</span><b>{money(total)}</b></div>
+        {isCashier&&<><div className="payment-switch">{['cash','card',...(settings?.allow_split_payment===false?[]:['split'])].map(x=><button key={x} className={pay===x?'active':''} onClick={()=>setPay(x)}>{x}</button>)}</div>{pay==='split'&&<div className="split-pay"><input type="number" placeholder="Cash" value={cashPaid||''} onChange={e=>setCashPaid(+e.target.value||0)}/><input type="number" placeholder="Card" value={cardPaid||''} onChange={e=>setCardPaid(+e.target.value||0)}/></div>}<button className="pay-button" onClick={()=>submit(false)} disabled={saving}>{saving?'Saving...':`SAVE ORDER · ${money(total)}`}</button>{settings?.allow_hold_orders!==false&&<button className="secondary-button" onClick={()=>submit(true)}>HOLD ORDER</button>}</>}{isWaiter&&<><button className="pay-button waiter-send" onClick={()=>submit(false)} disabled={saving}>{saving?'Sending...':'SEND ORDER TO KITCHEN'}</button>{settings?.allow_hold_orders!==false&&<button className="secondary-button" onClick={()=>submit(true)}>HOLD ORDER</button>}</>}
         {held.length>0&&<div className="held-box"><b>Held orders</b>{held.slice(0,5).map(h=><button key={h.id} onClick={()=>recall(h.id)}>Recall #{h.id} · {money(h.total)}</button>)}</div>}
       </div>
     </aside>

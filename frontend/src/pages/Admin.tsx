@@ -106,8 +106,11 @@ export default function Admin(){
 
   const testPrinter=async()=>{
     try{
-      const health = await fetch(PRINT_BRIDGE+'/health')
-      if(!health.ok) throw new Error('Printer bridge is not running')
+      const isAndroidNative = !!(window as any).AndroidPrinter
+      if(!isAndroidNative){
+        const health = await fetch(PRINT_BRIDGE+'/health')
+        if(!health.ok) throw new Error('Printer bridge is not running')
+      }
       const testOrder:any={
         id:'TEST',order_type:'test',payment_method:'cash',
         subtotal:0,discount:0,vat:0,total:0,
@@ -116,7 +119,10 @@ export default function Admin(){
       await sendToIpPrinter(testOrder,settings)
       alert('Test print sent successfully')
     }catch(e:any){
-      alert('Printer test failed: '+e.message+'\nRun print-bridge/start-printer-bridge.bat on the cashier PC.')
+      const nativeMsg = (window as any).AndroidPrinter
+        ? 'Check printer IP, port, Wi-Fi and printer power.'
+        : 'Run print-bridge/start-printer-bridge.bat on the cashier PC.'
+      alert('Printer test failed: '+e.message+'\n'+nativeMsg)
     }
   }
 
@@ -314,7 +320,7 @@ export default function Admin(){
                     <button className="secondary-btn" onClick={testPrinter}>Test printer</button>
                     <button className="primary-btn" onClick={saveSettings}>Save settings</button>
                   </div>
-                  <p className="helper">Cashier PC must run <b>print-bridge/start-printer-bridge.bat</b>. Printer and PC must be on the same LAN/Wi-Fi.</p>
+                  <p className="helper">Android Cashier app: just enter printer IP + port, turn Auto Print ON, and keep the tablet/mobile and printer on the same Wi-Fi/LAN. Browser/Windows use still needs the optional print bridge.</p>
                 </div>
               </div>
             </>

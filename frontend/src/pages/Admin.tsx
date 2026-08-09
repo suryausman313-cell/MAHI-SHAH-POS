@@ -1,104 +1,352 @@
 import React,{useEffect,useMemo,useState} from 'react'
 import Shell from '../components/Shell'
-import StatCard from '../components/StatCard'
 import {api,money,orderTime,PRINT_BRIDGE,sendToIpPrinter} from '../api'
 import type {InventoryItem,MenuItem,Order,Settings,Staff} from '../types'
 
-type Tab='dashboard'|'orders'|'shifts'|'menu'|'inventory'|'customers'|'suppliers'|'expenses'|'staff'|'reports'|'coupons'|'audit'|'advanced'|'printer'
-const tabs:{key:Tab;icon:string;label:string}[]=[
-{key:'dashboard',icon:'◫',label:'Dashboard'},{key:'orders',icon:'▤',label:'Orders'},{key:'shifts',icon:'◷',label:'Shift / Closing'},
-{key:'menu',icon:'☷',label:'Menu'},{key:'inventory',icon:'▥',label:'Inventory'},{key:'customers',icon:'♙',label:'Customers'},
-{key:'suppliers',icon:'▧',label:'Suppliers / Purchase'},{key:'expenses',icon:'↓',label:'Expenses'},{key:'staff',icon:'♙',label:'Staff'},
-{key:'reports',icon:'↗',label:'Reports'},{key:'coupons',icon:'%',label:'Coupons'},{key:'audit',icon:'≡',label:'Audit'},
-{key:'advanced',icon:'⚒',label:'Advanced'},
-{key:'printer',icon:'▣',label:'Printer'}]
+type Tab='dashboard'|'control'|'orders'|'shifts'|'menu'|'inventory'|'customers'|'suppliers'|'expenses'|'staff'|'reports'|'coupons'|'audit'|'advanced'|'printer'
+
+const tabs:{key:Tab;icon:string;label:string;group:string}[]=[
+ {key:'dashboard',icon:'◫',label:'Dashboard',group:'MAIN'},
+ {key:'control',icon:'⚙',label:'Control Center',group:'MAIN'},
+ {key:'orders',icon:'▤',label:'Orders',group:'MAIN'},
+ {key:'shifts',icon:'◷',label:'Shift & Closing',group:'MAIN'},
+ {key:'menu',icon:'☷',label:'Menu',group:'MANAGE'},
+ {key:'inventory',icon:'▥',label:'Inventory',group:'MANAGE'},
+ {key:'customers',icon:'♙',label:'Customers',group:'MANAGE'},
+ {key:'suppliers',icon:'▧',label:'Suppliers',group:'MANAGE'},
+ {key:'expenses',icon:'↓',label:'Expenses',group:'MANAGE'},
+ {key:'staff',icon:'♙',label:'Staff',group:'MANAGE'},
+ {key:'reports',icon:'↗',label:'Reports',group:'INSIGHTS'},
+ {key:'coupons',icon:'%',label:'Coupons',group:'INSIGHTS'},
+ {key:'audit',icon:'≡',label:'Audit Log',group:'INSIGHTS'},
+ {key:'advanced',icon:'⚒',label:'Advanced',group:'SYSTEM'},
+ {key:'printer',icon:'▣',label:'Printer & Shop',group:'SYSTEM'},
+]
+
+const Stat=({label,value,sub,icon,tone='blue'}:{label:string,value:any,sub?:string,icon:string,tone?:string})=>(
+ <div className={`pro-stat ${tone}`}>
+   <div className="pro-stat-icon">{icon}</div>
+   <div><span>{label}</span><strong>{value}</strong>{sub&&<small>{sub}</small>}</div>
+ </div>
+)
 
 export default function Admin(){
- const[tab,setTab]=useState<Tab>('dashboard');const[report,setReport]=useState<any>({});const[menu,setMenu]=useState<MenuItem[]>([]);
- const[orders,setOrders]=useState<Order[]>([]);const[inventory,setInventory]=useState<InventoryItem[]>([]);const[staff,setStaff]=useState<Staff[]>([]);
- const[customers,setCustomers]=useState<any[]>([]);const[suppliers,setSuppliers]=useState<any[]>([]);const[purchases,setPurchases]=useState<any[]>([]);
- const[expenses,setExpenses]=useState<any[]>([]);const[shifts,setShifts]=useState<any[]>([]);const[currentShift,setCurrentShift]=useState<any>(null);
- const[coupons,setCoupons]=useState<any[]>([]);const[audit,setAudit]=useState<any[]>([]);const[printers,setPrinters]=useState<any[]>([]);
- const[foodCost,setFoodCost]=useState<any[]>([]);const[stations,setStations]=useState<any[]>([]);const[deals,setDeals]=useState<any[]>([]);const[transfers,setTransfers]=useState<any[]>([]);
- const[settings,setSettings]=useState<any>({shop_name:'',shop_phone:'',shop_address:'',trn:'',vat_percent:5,receipt_footer:'Thank you!',printer_ip:'',printer_port:9100,auto_print:false,kitchen_sound:true,require_shift:true,currency:'AED',payment_terminal_provider:'',payment_terminal_enabled:false})
- const[menuForm,setMenuForm]=useState({name:'',category:'General',price:'',barcode:''});const[invForm,setInvForm]=useState({name:'',unit:'pcs',qty:''});
- const[staffForm,setStaffForm]=useState({name:'',role:'cashier',pin:''});const[custForm,setCustForm]=useState({name:'',phone:'',address:''});
- const[supForm,setSupForm]=useState({name:'',phone:'',email:''});const[expForm,setExpForm]=useState({title:'',amount:'',category:'General'});
+ const[tab,setTab]=useState<Tab>('dashboard')
+ const[report,setReport]=useState<any>({})
+ const[menu,setMenu]=useState<MenuItem[]>([])
+ const[orders,setOrders]=useState<Order[]>([])
+ const[inventory,setInventory]=useState<InventoryItem[]>([])
+ const[staff,setStaff]=useState<Staff[]>([])
+ const[customers,setCustomers]=useState<any[]>([])
+ const[suppliers,setSuppliers]=useState<any[]>([])
+ const[purchases,setPurchases]=useState<any[]>([])
+ const[expenses,setExpenses]=useState<any[]>([])
+ const[shifts,setShifts]=useState<any[]>([])
+ const[currentShift,setCurrentShift]=useState<any>(null)
+ const[coupons,setCoupons]=useState<any[]>([])
+ const[audit,setAudit]=useState<any[]>([])
+ const[foodCost,setFoodCost]=useState<any[]>([])
+ const[stations,setStations]=useState<any[]>([])
+ const[deals,setDeals]=useState<any[]>([])
+ const[transfers,setTransfers]=useState<any[]>([])
+ const[settings,setSettings]=useState<any>({
+   shop_name:'',shop_phone:'',shop_address:'',trn:'',vat_percent:5,
+   receipt_footer:'Thank you!',printer_ip:'',printer_port:9100,auto_print:false,
+   kitchen_sound:true,require_shift:true,currency:'AED',
+   payment_terminal_provider:'',payment_terminal_enabled:false
+ })
+ const[menuForm,setMenuForm]=useState({name:'',category:'General',price:'',barcode:''})
+ const[invForm,setInvForm]=useState({name:'',unit:'pcs',qty:''})
+ const[staffForm,setStaffForm]=useState({name:'',role:'cashier',pin:''})
+ const[custForm,setCustForm]=useState({name:'',phone:'',address:''})
+ const[supForm,setSupForm]=useState({name:'',phone:'',email:''})
+ const[expForm,setExpForm]=useState({title:'',amount:'',category:'General'})
  const[couponForm,setCouponForm]=useState({code:'',discount_type:'fixed',value:''})
 
- const load=async()=>{const[r,m,o,i,s,c,su,p,e,sh,cs,co,a,pr,st,fc,ks,de,tr]=await Promise.all([
- api('/reports/today'),api<MenuItem[]>('/admin/menu'),api<Order[]>('/orders'),api<InventoryItem[]>('/inventory'),api<Staff[]>('/staff'),
- api<any[]>('/customers'),api<any[]>('/suppliers'),api<any[]>('/purchases'),api<any[]>('/expenses'),api<any[]>('/shifts'),api('/shifts/current'),
- api<any[]>('/coupons'),api<any[]>('/audit'),api<any[]>('/printers'),api<Settings>('/settings'),
- api<any[]>('/food-cost'),api<any[]>('/kitchen-stations'),api<any[]>('/deals'),api<any[]>('/stock-transfer')]);
- setReport(r);setMenu(m);setOrders(o);setInventory(i);setStaff(s);setCustomers(c);setSuppliers(su);setPurchases(p);setExpenses(e);setShifts(sh);setCurrentShift(cs);setCoupons(co);setAudit(a);setPrinters(pr);setSettings(st);setFoodCost(fc);setStations(ks);setDeals(de);setTransfers(tr)}
+ const load=async()=>{
+  const[r,m,o,i,s,c,su,p,e,sh,cs,co,a,st,fc,ks,de,tr]=await Promise.all([
+   api('/reports/today'),api<MenuItem[]>('/admin/menu'),api<Order[]>('/orders'),
+   api<InventoryItem[]>('/inventory'),api<Staff[]>('/staff'),api<any[]>('/customers'),
+   api<any[]>('/suppliers'),api<any[]>('/purchases'),api<any[]>('/expenses'),
+   api<any[]>('/shifts'),api('/shifts/current'),api<any[]>('/coupons'),
+   api<any[]>('/audit'),api<Settings>('/settings'),api<any[]>('/food-cost'),
+   api<any[]>('/kitchen-stations'),api<any[]>('/deals'),api<any[]>('/stock-transfer')
+  ])
+  setReport(r);setMenu(m);setOrders(o);setInventory(i);setStaff(s);setCustomers(c)
+  setSuppliers(su);setPurchases(p);setExpenses(e);setShifts(sh);setCurrentShift(cs)
+  setCoupons(co);setAudit(a);setSettings(st);setFoodCost(fc);setStations(ks);setDeals(de);setTransfers(tr)
+ }
  useEffect(()=>{load().catch(e=>alert(e.message))},[])
- const avg=report.orders?report.sales/report.orders:0;const cats=useMemo(()=>new Set(menu.map(x=>x.category)).size,[menu])
 
  const post=async(path:string,body:any)=>{await api(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});await load()}
+ const avg=report.orders?Number(report.sales||0)/Number(report.orders):0
+ const lowStock=inventory.filter(x=>x.low).length
+ const openOrders=orders.filter(o=>!['completed','cancelled','refunded'].includes(o.status)).length
+ const todayRecent=orders.slice(0,8)
+ const cashPct=report.sales?Math.min(100,(report.cash/report.sales)*100):0
+ const cardPct=report.sales?Math.min(100,(report.card/report.sales)*100):0
+
+ const saveImage=async(item:any,file:File)=>{
+   const reader=new FileReader()
+   reader.onload=async()=>{await api(`/admin/menu/${item.id}/image`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({image_data:String(reader.result||'')})});await load()}
+   reader.readAsDataURL(file)
+ }
+ const setPermissions=async(s:any)=>{
+   const all=[
+    'cashier_access','waiter_access','kitchen_access','tables_access','display_access',
+    'admin_access','refund','void','discount','shift_close','day_close','inventory',
+    'reports','expenses','printer','customers','suppliers'
+   ]
+   const current=new Set(s.permissions||[])
+   const chosen:string[]=[]
+   for(const p of all){
+     if(confirm(`${s.name}: allow ${p.replaceAll('_',' ')}?`)) chosen.push(p)
+   }
+   await api(`/staff/${s.id}/permissions`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({permissions:chosen})})
+   await load()
+ }
  const addMenu=()=>post('/admin/menu',{...menuForm,price:+menuForm.price||0,sku:'',active:true}).then(()=>setMenuForm({name:'',category:'General',price:'',barcode:''}))
  const delMenu=async(id:number)=>{if(confirm('Disable this item?')){await api('/admin/menu/'+id,{method:'DELETE'});await load()}}
  const addInv=()=>post('/inventory',{...invForm,qty:+invForm.qty||0,min_qty:0,cost:0}).then(()=>setInvForm({name:'',unit:'pcs',qty:''}))
  const adjustInv=async(i:any)=>{const q=prompt('New quantity',String(i.qty));if(q===null)return;await api('/inventory/'+i.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({qty:+q||0,reason:'Manual stock count'})});await load()}
- const waste=async(i:any)=>{const q=prompt('Wastage quantity');if(!q)return;const reason=prompt('Reason')||'Wastage';await post('/wastage',{inventory_item_id:i.id,qty:+q,reason})}
+ const waste=async(i:any)=>{const q=prompt('Wastage quantity');if(!q)return;await post('/wastage',{inventory_item_id:i.id,qty:+q,reason:prompt('Reason')||'Wastage'})}
  const addStaff=()=>post('/staff',{...staffForm,permissions:[],active:true}).then(()=>setStaffForm({name:'',role:'cashier',pin:''}))
  const addCust=()=>post('/customers',custForm).then(()=>setCustForm({name:'',phone:'',address:''}))
  const addSup=()=>post('/suppliers',supForm).then(()=>setSupForm({name:'',phone:'',email:''}))
- const purchase=async()=>{if(!inventory.length)return alert('Add inventory first');const supplier=prompt('Supplier ID (optional)','');const inv=prompt('Inventory item ID',String(inventory[0].id));const qty=prompt('Quantity','1');const cost=prompt('Unit cost','0');if(!inv||!qty)return;await post('/purchases',{supplier_id:supplier?+supplier:null,items:[{inventory_item_id:+inv,qty:+qty,cost:+cost||0}]})}
  const addExpense=()=>post('/expenses',{...expForm,amount:+expForm.amount||0}).then(()=>setExpForm({title:'',amount:'',category:'General'}))
  const addCoupon=()=>post('/coupons',{...couponForm,value:+couponForm.value||0,active:true}).then(()=>setCouponForm({code:'',discount_type:'fixed',value:''}))
- const voidOrder=async(o:any)=>{const pin=prompt('Manager/Admin PIN');if(!pin)return;const reason=prompt('Void reason')||'';try{await post(`/orders/${o.id}/void`,{manager_pin:pin,reason})}catch(e:any){alert(e.message)}}
- const refund=async(o:any)=>{const pin=prompt('Manager/Admin PIN');if(!pin)return;const amt=prompt(`Refund amount (max ${o.total-o.refund_amount})`,String(o.total-o.refund_amount));if(!amt)return;try{await post(`/orders/${o.id}/refund`,{manager_pin:pin,amount:+amt,reason:prompt('Reason')||''})}catch(e:any){alert(e.message)}}
- const cashMove=async(type:'in'|'out')=>{if(!currentShift)return alert('No open shift');const a=prompt(`Cash ${type} amount`);if(!a)return;await post(`/shifts/${currentShift.id}/cash`,{movement_type:type,amount:+a,reason:prompt('Reason')||''})}
- const closeShift=async()=>{if(!currentShift)return;const actual=prompt(`Expected ${currentShift.expected_cash}. Actual cash?`);if(actual===null)return;const pin=prompt('Manager/Admin PIN');if(!pin)return;try{const r:any=await api(`/shifts/${currentShift.id}/close`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({actual_cash:+actual||0,staff_pin:pin})});alert(`Closed. Difference ${r.difference}`);await load()}catch(e:any){alert(e.message)}}
+ const purchase=async()=>{if(!inventory.length)return alert('Add inventory first');const inv=prompt('Inventory item ID',String(inventory[0].id));const qty=prompt('Quantity','1');const cost=prompt('Unit cost','0');if(!inv||!qty)return;await post('/purchases',{supplier_id:null,items:[{inventory_item_id:+inv,qty:+qty,cost:+cost||0}]})}
+ const voidOrder=async(o:any)=>{const pin=prompt('Manager/Admin PIN');if(!pin)return;try{await post(`/orders/${o.id}/void`,{manager_pin:pin,reason:prompt('Void reason')||''})}catch(e:any){alert(e.message)}}
+ const refund=async(o:any)=>{const pin=prompt('Manager/Admin PIN');if(!pin)return;const amt=prompt(`Refund amount (max ${o.total-(o.refund_amount||0)})`,String(o.total-(o.refund_amount||0)));if(!amt)return;try{await post(`/orders/${o.id}/refund`,{manager_pin:pin,amount:+amt,reason:prompt('Reason')||''})}catch(e:any){alert(e.message)}}
+ const cashMove=async(type:'in'|'out')=>{if(!currentShift)return alert('No open shift');const amt=prompt(`Cash ${type} amount`);if(!amt)return;await post(`/shifts/${currentShift.id}/cash`,{movement_type:type,amount:+amt,reason:prompt('Reason')||''})}
+ const closeShift=async()=>{if(!currentShift)return;const actual=prompt(`Expected ${currentShift.expected_cash}. Actual cash?`);if(actual===null)return;const pin=prompt('Manager/Admin PIN');if(!pin)return;try{const r:any=await api(`/shifts/${currentShift.id}/close`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({actual_cash:+actual||0,staff_pin:pin})});alert(`Shift closed. Difference ${r.difference}`);await load()}catch(e:any){alert(e.message)}}
  const closeDay=async()=>{const pin=prompt('Manager/Admin PIN');if(!pin)return;try{const r:any=await api('/day-close',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin})});alert(`Day closed. Sales ${r.sales}`);await load()}catch(e:any){alert(e.message)}}
  const saveSettings=async()=>{await api('/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(settings)});alert('Settings saved');await load()}
  const testPrinter=async()=>{try{const native=!!(window as any).AndroidPrinter;if(!native){const h=await fetch(PRINT_BRIDGE+'/health');if(!h.ok)throw Error('Printer bridge not running')}await sendToIpPrinter({id:'TEST',order_type:'test',payment_method:'cash',subtotal:0,discount:0,vat:0,total:0,items:[{qty:1,name:'MAHI POS TEST',unit_price:0}]},settings);alert('Test print sent')}catch(e:any){alert(e.message)}}
 
- return <Shell title="Admin Console" subtitle="Full restaurant operations">
- <div className="admin-layout"><aside className="admin-nav">{tabs.map(t=><button key={t.key} className={tab===t.key?'active':''} onClick={()=>setTab(t.key)}><i>{t.icon}</i><span>{t.label}</span></button>)}</aside>
- <section className="admin-content">
- {tab==='dashboard'&&<><div className="admin-section-head"><div><h2>Today overview</h2><p>Sales, cash and operations</p></div></div><div className="stat-grid">
- <StatCard label="Net sales" value={money(report.sales)} icon="↗"/><StatCard label="Orders" value={report.orders||0} icon="▤"/><StatCard label="Average order" value={money(avg)} icon="◎"/><StatCard label="VAT" value={money(report.vat)} icon="%"/>
- <StatCard label="Cash" value={money(report.cash)} icon="▣"/><StatCard label="Card" value={money(report.card)} icon="▭"/><StatCard label="Refunds" value={money(report.refunds)} icon="↶"/><StatCard label="Expenses" value={money(report.expenses)} icon="↓"/></div>
- <div className="two-col"><div className="panel-card"><div className="panel-title"><h3>Recent orders</h3><button onClick={()=>setTab('orders')}>View all</button></div><div className="admin-table"><div className="tr th"><span>Order</span><span>Status</span><span>Payment</span><span>Total</span></div>{orders.slice(0,7).map(o=><div className="tr" key={o.id}><span><b>#{o.id}</b><small>{orderTime(o.created_at)}</small></span><span>{o.status}</span><span>{o.payment_method}</span><span><b>{money(o.total)}</b></span></div>)}</div></div>
- <div className="panel-card"><div className="panel-title"><h3>Quick status</h3></div><div className="quick-status"><div><span>Open shift</span><b>{currentShift?'YES':'NO'}</b></div><div><span>Menu items</span><b>{menu.length}</b></div><div><span>Low stock</span><b>{inventory.filter(x=>x.low).length}</b></div><div><span>Customers</span><b>{customers.length}</b></div></div></div></div></>}
+ const groups=['MAIN','MANAGE','INSIGHTS','SYSTEM']
 
- {tab==='orders'&&<><div className="admin-section-head"><div><h2>Orders</h2><p>Void/refund requires manager PIN</p></div></div><div className="panel-card"><div className="admin-table wide"><div className="tr th"><span>#</span><span>Time</span><span>Type</span><span>Status</span><span>Payment</span><span>Total / Actions</span></div>{orders.map(o=><div className="tr" key={o.id}><span><b>#{o.id}</b></span><span>{orderTime(o.created_at)}</span><span>{o.order_type}</span><span><em className={`status-badge ${o.status}`}>{o.status}</em></span><span>{o.payment_method}</span><span><b>{money(o.total)}</b><div className="tiny-actions"><button onClick={()=>refund(o)}>Refund</button><button onClick={()=>voidOrder(o)}>Void</button></div></span></div>)}</div></div></>}
+ return <Shell title="Admin Dashboard" subtitle="Restaurant performance and operations">
+  <div className="pro-admin-layout">
+   <aside className="pro-admin-nav">
+    {groups.map(g=><div key={g} className="pro-nav-group">
+      <small>{g}</small>
+      {tabs.filter(t=>t.group===g).map(t=><button key={t.key} className={tab===t.key?'active':''} onClick={()=>setTab(t.key)}><i>{t.icon}</i><span>{t.label}</span></button>)}
+    </div>)}
+   </aside>
 
- {tab==='shifts'&&<><div className="admin-section-head"><div><h2>Shift & Day Closing</h2><p>Cash reconciliation and Z closing</p></div><div className="button-row"><button className="secondary-btn" onClick={()=>cashMove('in')}>Cash In</button><button className="secondary-btn" onClick={()=>cashMove('out')}>Cash Out</button><button className="primary-btn" onClick={closeShift}>Close Shift</button><button className="primary-btn" onClick={closeDay}>Close Day</button></div></div>
- {currentShift&&<div className="stat-grid"><StatCard label="Opening cash" value={money(currentShift.opening_cash)}/><StatCard label="Cash sales" value={money(currentShift.cash_sales)}/><StatCard label="Card sales" value={money(currentShift.card_sales)}/><StatCard label="Expected cash" value={money(currentShift.expected_cash)}/></div>}
- <div className="panel-card"><div className="admin-table wide"><div className="tr th"><span>Shift</span><span>Opened</span><span>Status</span><span>Expected</span><span>Actual</span><span>Difference</span></div>{shifts.map(s=><div className="tr" key={s.id}><span>#{s.id}</span><span>{orderTime(s.opened_at)}</span><span>{s.status}</span><span>{money(s.expected_cash)}</span><span>{s.actual_cash==null?'—':money(s.actual_cash)}</span><span>{s.difference==null?'—':money(s.difference)}</span></div>)}</div></div></>}
+   <section className="pro-admin-content">
+    {tab==='dashboard'&&<>
+      <div className="pro-page-head">
+       <div><h2>Today at a glance</h2><p>Live business performance</p></div>
+       <div className="pro-head-actions">
+        <button className="secondary-btn" onClick={()=>setTab('orders')}>View Orders</button>
+        <button className="primary-btn" onClick={()=>setTab('reports')}>Open Reports</button>
+       </div>
+      </div>
 
- {tab==='menu'&&<><div className="admin-section-head"><div><h2>Menu</h2><p>Items, barcode and pricing</p></div></div><div className="form-card"><input placeholder="Item" value={menuForm.name} onChange={e=>setMenuForm({...menuForm,name:e.target.value})}/><input placeholder="Category" value={menuForm.category} onChange={e=>setMenuForm({...menuForm,category:e.target.value})}/><input type="number" placeholder="Price" value={menuForm.price} onChange={e=>setMenuForm({...menuForm,price:e.target.value})}/><input placeholder="Barcode" value={menuForm.barcode} onChange={e=>setMenuForm({...menuForm,barcode:e.target.value})}/><button className="primary-btn" onClick={addMenu}>Add</button></div><div className="menu-admin-grid">{menu.map(i=><article key={i.id}><div className="mini-product">{i.name[0]}</div><div><small>{i.category} · {i.barcode||'No barcode'}</small><strong>{i.name}</strong><b>{money(i.price)}</b></div><button onClick={()=>delMenu(i.id)}>Disable</button></article>)}</div></>}
+      <div className="pro-stat-grid">
+       <Stat label="Net Sales" value={money(report.sales)} sub={`${report.orders||0} orders`} icon="↗" tone="blue"/>
+       <Stat label="Open Orders" value={openOrders} sub="Live in system" icon="▤" tone="purple"/>
+       <Stat label="Average Order" value={money(avg)} sub="Per ticket" icon="◎" tone="teal"/>
+       <Stat label="VAT" value={money(report.vat)} sub="Collected today" icon="%" tone="orange"/>
+       <Stat label="Cash" value={money(report.cash)} sub="Cash payments" icon="▣" tone="green"/>
+       <Stat label="Card" value={money(report.card)} sub="Card payments" icon="▭" tone="indigo"/>
+       <Stat label="Refunds" value={money(report.refunds)} sub="Today refunds" icon="↶" tone="red"/>
+       <Stat label="Expenses" value={money(report.expenses)} sub="Petty cash / costs" icon="↓" tone="gray"/>
+      </div>
 
- {tab==='inventory'&&<><div className="admin-section-head"><div><h2>Inventory</h2><p>Stock count, adjustment and wastage</p></div></div><div className="form-card"><input placeholder="Stock item" value={invForm.name} onChange={e=>setInvForm({...invForm,name:e.target.value})}/><input placeholder="Unit" value={invForm.unit} onChange={e=>setInvForm({...invForm,unit:e.target.value})}/><input type="number" placeholder="Qty" value={invForm.qty} onChange={e=>setInvForm({...invForm,qty:e.target.value})}/><button className="primary-btn" onClick={addInv}>Add Stock</button></div><div className="panel-card"><div className="admin-table"><div className="tr th"><span>Item</span><span>On hand</span><span>Minimum</span><span>Action</span></div>{inventory.map(i=><div className="tr" key={i.id}><span><b>{i.name}</b><small>{i.unit}</small></span><span>{i.qty} {i.unit}</span><span>{i.min_qty}</span><span><button onClick={()=>adjustInv(i)}>Count</button> <button onClick={()=>waste(i)}>Waste</button></span></div>)}</div></div></>}
+      <div className="pro-dashboard-grid">
+       <div className="pro-card pro-span-2">
+        <div className="pro-card-head"><div><h3>Recent Orders</h3><p>Latest transactions</p></div><button onClick={()=>setTab('orders')}>View all</button></div>
+        <div className="pro-table">
+         <div className="pro-tr pro-th"><span>Order</span><span>Type</span><span>Status</span><span>Payment</span><span>Total</span></div>
+         {todayRecent.map(o=><div className="pro-tr" key={o.id}>
+          <span><b>#{o.id}</b><small>{orderTime(o.created_at)}</small></span>
+          <span className="cap">{o.order_type}</span>
+          <span><em className={`status-badge ${o.status}`}>{o.status}</em></span>
+          <span className="cap">{o.payment_method}</span>
+          <span><b>{money(o.total)}</b></span>
+         </div>)}
+        </div>
+       </div>
 
- {tab==='customers'&&<><div className="admin-section-head"><div><h2>Customers</h2><p>CRM and loyalty points</p></div></div><div className="form-card"><input placeholder="Name" value={custForm.name} onChange={e=>setCustForm({...custForm,name:e.target.value})}/><input placeholder="Phone" value={custForm.phone} onChange={e=>setCustForm({...custForm,phone:e.target.value})}/><input placeholder="Address" value={custForm.address} onChange={e=>setCustForm({...custForm,address:e.target.value})}/><button className="primary-btn" onClick={addCust}>Add</button></div><div className="panel-card"><div className="admin-table"><div className="tr th"><span>Name</span><span>Phone</span><span>Address</span><span>Points</span></div>{customers.map(c=><div className="tr" key={c.id}><span><b>{c.name}</b></span><span>{c.phone}</span><span>{c.address}</span><span>{Math.round(c.points)}</span></div>)}</div></div></>}
+       <div className="pro-card">
+        <div className="pro-card-head"><div><h3>Shift Status</h3><p>Cashier control</p></div></div>
+        {currentShift?<div className="shift-status-card open">
+          <div className="shift-badge">OPEN</div><strong>Shift #{currentShift.id}</strong>
+          <div className="shift-money"><span>Opening</span><b>{money(currentShift.opening_cash)}</b></div>
+          <div className="shift-money"><span>Expected Cash</span><b>{money(currentShift.expected_cash)}</b></div>
+          <button onClick={()=>setTab('shifts')}>Manage Shift</button>
+        </div>:<div className="shift-status-card closed"><div className="shift-badge">CLOSED</div><strong>No active shift</strong><p>Cashier must open a shift before sales.</p></div>}
+       </div>
 
- {tab==='suppliers'&&<><div className="admin-section-head"><div><h2>Suppliers & Purchases</h2><p>Receiving stock automatically increases inventory</p></div><button className="primary-btn" onClick={purchase}>Receive Purchase</button></div><div className="form-card"><input placeholder="Supplier name" value={supForm.name} onChange={e=>setSupForm({...supForm,name:e.target.value})}/><input placeholder="Phone" value={supForm.phone} onChange={e=>setSupForm({...supForm,phone:e.target.value})}/><input placeholder="Email" value={supForm.email} onChange={e=>setSupForm({...supForm,email:e.target.value})}/><button className="primary-btn" onClick={addSup}>Add Supplier</button></div><div className="two-col"><div className="panel-card">{suppliers.map(s=><div className="simple-row" key={s.id}>#{s.id} <b>{s.name}</b> {s.phone}</div>)}</div><div className="panel-card">{purchases.slice(0,20).map(p=><div className="simple-row" key={p.id}>Purchase #{p.id} <b>{money(p.total)}</b></div>)}</div></div></>}
+       <div className="pro-card">
+        <div className="pro-card-head"><div><h3>Payments</h3><p>Today split</p></div></div>
+        <div className="pay-breakdown">
+         <div><span>Cash</span><b>{money(report.cash)}</b></div><div className="bar"><i style={{width:`${cashPct}%`}}/></div>
+         <div><span>Card</span><b>{money(report.card)}</b></div><div className="bar alt"><i style={{width:`${cardPct}%`}}/></div>
+        </div>
+       </div>
 
- {tab==='expenses'&&<><div className="admin-section-head"><div><h2>Expenses / Petty Cash</h2></div></div><div className="form-card"><input placeholder="Expense" value={expForm.title} onChange={e=>setExpForm({...expForm,title:e.target.value})}/><input type="number" placeholder="Amount" value={expForm.amount} onChange={e=>setExpForm({...expForm,amount:e.target.value})}/><input placeholder="Category" value={expForm.category} onChange={e=>setExpForm({...expForm,category:e.target.value})}/><button className="primary-btn" onClick={addExpense}>Add Expense</button></div><div className="panel-card">{expenses.map(e=><div className="simple-row" key={e.id}><span>{e.title} · {e.category}</span><b>{money(e.amount)}</b></div>)}</div></>}
+       <div className="pro-card">
+        <div className="pro-card-head"><div><h3>Operations</h3><p>Current status</p></div></div>
+        <div className="pro-quick-grid">
+         <div><span>Menu Items</span><b>{menu.length}</b></div>
+         <div><span>Low Stock</span><b className={lowStock?'danger-text':''}>{lowStock}</b></div>
+         <div><span>Customers</span><b>{customers.length}</b></div>
+         <div><span>Staff</span><b>{staff.length}</b></div>
+         <div><span>Kitchen Stations</span><b>{stations.length}</b></div>
+         <div><span>Deals</span><b>{deals.length}</b></div>
+        </div>
+       </div>
 
- {tab==='staff'&&<><div className="admin-section-head"><div><h2>Staff, Roles & PIN</h2></div></div><div className="form-card"><input placeholder="Name" value={staffForm.name} onChange={e=>setStaffForm({...staffForm,name:e.target.value})}/><select value={staffForm.role} onChange={e=>setStaffForm({...staffForm,role:e.target.value})}><option>cashier</option><option>waiter</option><option>kitchen</option><option>manager</option><option>admin</option></select><input placeholder="PIN" value={staffForm.pin} onChange={e=>setStaffForm({...staffForm,pin:e.target.value})}/><button className="primary-btn" onClick={addStaff}>Add Staff</button></div><div className="staff-grid">{staff.map(s=><article key={s.id}><div className="avatar">{s.name[0]}</div><strong>{s.name}</strong><span>{s.role}</span><small>PIN {s.pin}</small></article>)}</div></>}
-
- {tab==='reports'&&<><div className="admin-section-head"><div><h2>Reports</h2><p>Daily / period reporting endpoint is ready</p></div></div><div className="report-hero"><div><span>Today's sales</span><strong>{money(report.sales)}</strong><small>{report.orders||0} orders</small></div><div className="payment-bars"><label><span>Cash</span><b>{money(report.cash)}</b></label><div><i style={{width:`${report.sales?report.cash/report.sales*100:0}%`}}/></div><label><span>Card</span><b>{money(report.card)}</b></label><div><i style={{width:`${report.sales?report.card/report.sales*100:0}%`}}/></div></div></div><div className="stat-grid"><StatCard label="VAT" value={money(report.vat)}/><StatCard label="Discounts" value={money(report.discounts)}/><StatCard label="Refunds" value={money(report.refunds)}/><StatCard label="After expenses" value={money(report.net_after_expenses)}/></div></>}
-
- {tab==='coupons'&&<><div className="admin-section-head"><div><h2>Coupons / Promotions</h2></div></div><div className="form-card"><input placeholder="Code" value={couponForm.code} onChange={e=>setCouponForm({...couponForm,code:e.target.value.toUpperCase()})}/><select value={couponForm.discount_type} onChange={e=>setCouponForm({...couponForm,discount_type:e.target.value})}><option value="fixed">Fixed AED</option><option value="percent">Percent %</option></select><input type="number" placeholder="Value" value={couponForm.value} onChange={e=>setCouponForm({...couponForm,value:e.target.value})}/><button className="primary-btn" onClick={addCoupon}>Add Coupon</button></div><div className="panel-card">{coupons.map(c=><div className="simple-row" key={c.id}><b>{c.code}</b><span>{c.discount_type} {c.value}</span></div>)}</div></>}
-
- {tab==='audit'&&<><div className="admin-section-head"><div><h2>Audit Log</h2><p>Tracks sensitive/admin actions</p></div></div><div className="panel-card">{audit.slice(0,200).map(a=><div className="simple-row" key={a.id}><span>{a.created_at.slice(0,19).replace('T',' ')} · <b>{a.action}</b> {a.entity} #{a.entity_id}</span><small>{a.details}</small></div>)}</div></>}
-
-
- {tab==='advanced'&&<><div className="admin-section-head"><div><h2>Advanced Operations</h2><p>Food cost, stations, stock transfer, deals, backup and payment terminal configuration</p></div></div>
- <div className="two-col"><div className="panel-card"><div className="panel-title"><h3>Food Cost</h3></div>{foodCost.slice(0,30).map(f=><div className="simple-row" key={f.menu_item_id}><span>{f.name}</span><b>{money(f.ingredient_cost)} · {f.food_cost_percent}%</b></div>)}</div>
- <div className="panel-card"><div className="panel-title"><h3>Kitchen Stations</h3><button onClick={async()=>{const name=prompt('Station name');if(!name)return;const cats=(prompt('Categories comma separated')||'').split(',').map(x=>x.trim()).filter(Boolean);await post('/kitchen-stations',{name,categories:cats,printer_id:null,active:true})}}>Add</button></div>{stations.map(s=><div className="simple-row" key={s.id}><b>{s.name}</b><span>{s.categories.join(', ')||'All categories'}</span></div>)}</div></div>
- <div className="two-col"><div className="panel-card"><div className="panel-title"><h3>Stock Transfers</h3><button onClick={async()=>{const id=prompt('Inventory item ID');const q=prompt('Qty');if(!id||!q)return;await post('/stock-transfer',{inventory_item_id:+id,qty:+q,from_location:prompt('From','Main')||'Main',to_location:prompt('To','Branch')||'Branch'})}}>Transfer</button></div>{transfers.slice(0,30).map(t=><div className="simple-row" key={t.id}><span>Item #{t.inventory_item_id} · {t.qty}</span><b>{t.from_location} → {t.to_location}</b></div>)}</div>
- <div className="panel-card"><div className="panel-title"><h3>Deals / Combos</h3><button onClick={async()=>{const name=prompt('Deal name');const price=prompt('Deal price');if(!name||!price)return;await post('/deals',{name,price:+price,rules:[],active:true})}}>Add Deal</button></div>{deals.map(d=><div className="simple-row" key={d.id}><span>{d.name}</span><b>{money(d.price)}</b></div>)}</div></div>
- <div className="settings-grid"><div className="settings-card"><h3>Payment Terminal</h3><label>Provider<input value={settings.payment_terminal_provider||''} onChange={e=>setSettings({...settings,payment_terminal_provider:e.target.value})}/></label><label className="switch-line"><span><b>Enable terminal</b><small>Requires provider API/SDK credentials</small></span><input type="checkbox" checked={!!settings.payment_terminal_enabled} onChange={e=>setSettings({...settings,payment_terminal_enabled:e.target.checked})}/></label><button className="primary-btn" onClick={saveSettings}>Save</button></div>
- <div className="settings-card"><h3>Backup / Restore</h3><button className="secondary-btn" onClick={async()=>{const data=await api('/backup/export');const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob);const x=document.createElement('a');x.href=u;x.download='mahi-pos-backup.json';x.click();URL.revokeObjectURL(u)}}>Export Backup</button><p className="helper">Restore endpoint is included for importing a backup payload. Use only after keeping a copy of current data.</p></div></div></>}
+       <div className="pro-card">
+        <div className="pro-card-head"><div><h3>Low Stock</h3><p>Needs attention</p></div><button onClick={()=>setTab('inventory')}>Inventory</button></div>
+        <div className="low-stock-list">
+         {inventory.filter(x=>x.low).slice(0,6).map(i=><div key={i.id}><span><b>{i.name}</b><small>{i.qty} {i.unit} remaining</small></span><em>LOW</em></div>)}
+         {!lowStock&&<div className="all-good">✓ All inventory levels look healthy</div>}
+        </div>
+       </div>
+      </div>
+    </>}
 
 
- {tab==='printer'&&<><div className="admin-section-head"><div><h2>Printer & Shop Settings</h2><p>Android direct IP printing supported</p></div></div><div className="settings-grid"><div className="settings-card"><h3>Restaurant</h3><label>Shop Name<input value={settings.shop_name||''} onChange={e=>setSettings({...settings,shop_name:e.target.value})}/></label><label>Phone<input value={settings.shop_phone||''} onChange={e=>setSettings({...settings,shop_phone:e.target.value})}/></label><label>Address<input value={settings.shop_address||''} onChange={e=>setSettings({...settings,shop_address:e.target.value})}/></label><label>TRN<input value={settings.trn||''} onChange={e=>setSettings({...settings,trn:e.target.value})}/></label><label>VAT %<input type="number" value={settings.vat_percent||5} onChange={e=>setSettings({...settings,vat_percent:+e.target.value})}/></label><label>Footer<input value={settings.receipt_footer||''} onChange={e=>setSettings({...settings,receipt_footer:e.target.value})}/></label></div>
- <div className="settings-card"><h3>Receipt Printer</h3><label>Printer IP<input value={settings.printer_ip||''} onChange={e=>setSettings({...settings,printer_ip:e.target.value})}/></label><label>Port<input type="number" value={settings.printer_port||9100} onChange={e=>setSettings({...settings,printer_port:+e.target.value})}/></label><label className="switch-line"><span><b>Auto Print</b></span><input type="checkbox" checked={!!settings.auto_print} onChange={e=>setSettings({...settings,auto_print:e.target.checked})}/></label><label className="switch-line"><span><b>Require Open Shift</b></span><input type="checkbox" checked={!!settings.require_shift} onChange={e=>setSettings({...settings,require_shift:e.target.checked})}/></label><label className="switch-line"><span><b>Kitchen Sound</b></span><input type="checkbox" checked={!!settings.kitchen_sound} onChange={e=>setSettings({...settings,kitchen_sound:e.target.checked})}/></label><div className="button-row"><button className="secondary-btn" onClick={testPrinter}>Test Printer</button><button className="primary-btn" onClick={saveSettings}>Save</button></div></div></div></>}
- </section></div></Shell>
+    {tab==='control'&&<>
+      <div className="pro-page-head"><div><h2>Admin Control Center</h2><p>Control the complete POS from one place</p></div><button className="primary-btn" onClick={saveSettings}>Save All Controls</button></div>
+
+      <div className="control-master">
+       <div className={`master-switch ${settings.app_enabled===false?'off':'on'}`}>
+        <div><strong>Entire POS Application</strong><span>{settings.app_enabled===false?'DISABLED':'ACTIVE'}</span><small>Turn the whole POS application on/off</small></div>
+        <input type="checkbox" checked={settings.app_enabled!==false} onChange={e=>setSettings({...settings,app_enabled:e.target.checked})}/>
+       </div>
+       <div className={`master-switch ${settings.shop_open===false?'off':'on'}`}>
+        <div><strong>Restaurant Ordering</strong><span>{settings.shop_open===false?'CLOSED':'OPEN'}</span><small>Close ordering without disabling Admin</small></div>
+        <input type="checkbox" checked={settings.shop_open!==false} onChange={e=>setSettings({...settings,shop_open:e.target.checked})}/>
+       </div>
+      </div>
+
+      <div className="control-section-grid">
+       <div className="control-card"><h3>Tax & Checkout</h3>
+        <label><span><b>VAT</b><small>Show and calculate VAT</small></span><input type="checkbox" checked={settings.vat_enabled!==false} onChange={e=>setSettings({...settings,vat_enabled:e.target.checked})}/></label>
+        <label><span><b>Discounts</b><small>Cashier discount field</small></span><input type="checkbox" checked={settings.allow_discounts!==false} onChange={e=>setSettings({...settings,allow_discounts:e.target.checked})}/></label>
+        <label><span><b>Coupons</b><small>Coupon code support</small></span><input type="checkbox" checked={settings.allow_coupons!==false} onChange={e=>setSettings({...settings,allow_coupons:e.target.checked})}/></label>
+        <label><span><b>Split Payment</b><small>Cash + card payments</small></span><input type="checkbox" checked={settings.allow_split_payment!==false} onChange={e=>setSettings({...settings,allow_split_payment:e.target.checked})}/></label>
+       </div>
+
+       <div className="control-card"><h3>Order Types</h3>
+        <label><span><b>Takeaway</b></span><input type="checkbox" checked={settings.allow_takeaway!==false} onChange={e=>setSettings({...settings,allow_takeaway:e.target.checked})}/></label>
+        <label><span><b>Dine In</b></span><input type="checkbox" checked={settings.allow_dinein!==false} onChange={e=>setSettings({...settings,allow_dinein:e.target.checked})}/></label>
+        <label><span><b>Delivery</b></span><input type="checkbox" checked={settings.allow_delivery!==false} onChange={e=>setSettings({...settings,allow_delivery:e.target.checked})}/></label>
+        <label><span><b>Hold / Recall</b></span><input type="checkbox" checked={settings.allow_hold_orders!==false} onChange={e=>setSettings({...settings,allow_hold_orders:e.target.checked})}/></label>
+       </div>
+
+       <div className="control-card"><h3>Security & Cancellation</h3>
+        <label><span><b>Refunds</b><small>Manager PIN still required</small></span><input type="checkbox" checked={settings.allow_refunds!==false} onChange={e=>setSettings({...settings,allow_refunds:e.target.checked})}/></label>
+        <label><span><b>Void Orders</b><small>Manager PIN still required</small></span><input type="checkbox" checked={settings.allow_voids!==false} onChange={e=>setSettings({...settings,allow_voids:e.target.checked})}/></label>
+        <label><span><b>Kitchen Cancel</b><small>Kitchen can request cancellation</small></span><input type="checkbox" checked={settings.kitchen_can_cancel!==false} onChange={e=>setSettings({...settings,kitchen_can_cancel:e.target.checked})}/></label>
+        <label><span><b>Manager PIN for Kitchen Cancel</b></span><input type="checkbox" checked={settings.manager_pin_required_for_kitchen_cancel!==false} onChange={e=>setSettings({...settings,manager_pin_required_for_kitchen_cancel:e.target.checked})}/></label>
+       </div>
+
+       <div className="control-card"><h3>Screen Visibility</h3>
+        <label><span><b>Customer Display</b></span><input type="checkbox" checked={settings.allow_customer_display!==false} onChange={e=>setSettings({...settings,allow_customer_display:e.target.checked})}/></label>
+        <label><span><b>Waiter Payment Controls</b></span><input type="checkbox" checked={!!settings.allow_waiter_payment} onChange={e=>setSettings({...settings,allow_waiter_payment:e.target.checked})}/></label>
+        <label><span><b>Kitchen Prices</b></span><input type="checkbox" checked={!!settings.show_prices_in_kitchen} onChange={e=>setSettings({...settings,show_prices_in_kitchen:e.target.checked})}/></label>
+        <label><span><b>Kitchen Sound</b></span><input type="checkbox" checked={settings.kitchen_sound!==false} onChange={e=>setSettings({...settings,kitchen_sound:e.target.checked})}/></label>
+       </div>
+      </div>
+
+      <div className="control-note">Staff access is controlled from <b>Staff → Permissions</b>. Menu pictures are controlled from <b>Menu → Photo</b>. Printer, TRN and receipt settings are controlled from <b>Printer & Shop</b>.</div>
+    </>}
+
+
+    {tab==='orders'&&<>
+      <div className="pro-page-head"><div><h2>Orders</h2><p>Manage refunds, voids and order status</p></div></div>
+      <div className="pro-card"><div className="pro-table six">
+       <div className="pro-tr pro-th"><span>Order</span><span>Time</span><span>Type</span><span>Status</span><span>Payment</span><span>Total / Actions</span></div>
+       {orders.map(o=><div className="pro-tr" key={o.id}><span><b>#{o.id}</b></span><span>{orderTime(o.created_at)}</span><span className="cap">{o.order_type}</span><span><em className={`status-badge ${o.status}`}>{o.status}</em></span><span className="cap">{o.payment_method}</span><span><b>{money(o.total)}</b><div className="tiny-actions"><button onClick={()=>refund(o)}>Refund</button><button onClick={()=>voidOrder(o)}>Void</button></div></span></div>)}
+      </div></div>
+    </>}
+
+    {tab==='shifts'&&<>
+      <div className="pro-page-head"><div><h2>Shift & Day Closing</h2><p>Cash reconciliation and closing control</p></div>
+       <div className="pro-head-actions"><button className="secondary-btn" onClick={()=>cashMove('in')}>Cash In</button><button className="secondary-btn" onClick={()=>cashMove('out')}>Cash Out</button><button className="primary-btn" onClick={closeShift}>Close Shift</button><button className="primary-btn" onClick={closeDay}>Close Day</button></div>
+      </div>
+      {currentShift&&<div className="pro-stat-grid compact-stats"><Stat label="Opening Cash" value={money(currentShift.opening_cash)} icon="▣"/><Stat label="Cash Sales" value={money(currentShift.cash_sales)} icon="↗"/><Stat label="Card Sales" value={money(currentShift.card_sales)} icon="▭"/><Stat label="Expected Cash" value={money(currentShift.expected_cash)} icon="◎"/></div>}
+      <div className="pro-card"><div className="pro-table six"><div className="pro-tr pro-th"><span>Shift</span><span>Opened</span><span>Status</span><span>Expected</span><span>Actual</span><span>Difference</span></div>{shifts.map(s=><div className="pro-tr" key={s.id}><span><b>#{s.id}</b></span><span>{orderTime(s.opened_at)}</span><span><em className={`status-badge ${s.status==='open'?'ready':'completed'}`}>{s.status}</em></span><span>{money(s.expected_cash)}</span><span>{s.actual_cash==null?'—':money(s.actual_cash)}</span><span>{s.difference==null?'—':money(s.difference)}</span></div>)}</div></div>
+    </>}
+
+    {tab==='menu'&&<>
+      <div className="pro-page-head"><div><h2>Menu Management</h2><p>Products, categories, pricing and barcode</p></div></div>
+      <div className="pro-form-card"><input placeholder="Item name" value={menuForm.name} onChange={e=>setMenuForm({...menuForm,name:e.target.value})}/><input placeholder="Category" value={menuForm.category} onChange={e=>setMenuForm({...menuForm,category:e.target.value})}/><input type="number" placeholder="Price" value={menuForm.price} onChange={e=>setMenuForm({...menuForm,price:e.target.value})}/><input placeholder="Barcode" value={menuForm.barcode} onChange={e=>setMenuForm({...menuForm,barcode:e.target.value})}/><button className="primary-btn" onClick={addMenu}>Add Item</button></div>
+      <div className="pro-product-grid">{menu.map(i=><article key={i.id}><div className="pro-product-icon">{i.image?<img src={i.image} alt={i.name}/>:i.name[0]}</div><div><small>{i.category}</small><strong>{i.name}</strong><b>{money(i.price)}</b><em>{i.barcode||'No barcode'}</em></div><div className="product-actions"><label className="image-upload-btn">Photo<input type="file" accept="image/*" onChange={e=>e.target.files?.[0]&&saveImage(i,e.target.files[0])}/></label><button onClick={()=>delMenu(i.id)}>Disable</button></div></article>)}</div>
+    </>}
+
+    {tab==='inventory'&&<>
+      <div className="pro-page-head"><div><h2>Inventory</h2><p>Stock count, adjustments and wastage</p></div></div>
+      <div className="pro-form-card"><input placeholder="Stock item" value={invForm.name} onChange={e=>setInvForm({...invForm,name:e.target.value})}/><input placeholder="Unit" value={invForm.unit} onChange={e=>setInvForm({...invForm,unit:e.target.value})}/><input type="number" placeholder="Quantity" value={invForm.qty} onChange={e=>setInvForm({...invForm,qty:e.target.value})}/><button className="primary-btn" onClick={addInv}>Add Stock</button></div>
+      <div className="pro-card"><div className="pro-table"><div className="pro-tr pro-th"><span>Item</span><span>On Hand</span><span>Minimum</span><span>Status</span><span>Actions</span></div>{inventory.map(i=><div className="pro-tr" key={i.id}><span><b>{i.name}</b><small>{i.unit}</small></span><span>{i.qty} {i.unit}</span><span>{i.min_qty}</span><span>{i.low?<em className="status-badge cancelled">Low</em>:<em className="status-badge ready">Healthy</em>}</span><span><div className="tiny-actions"><button onClick={()=>adjustInv(i)}>Count</button><button onClick={()=>waste(i)}>Waste</button></div></span></div>)}</div></div>
+    </>}
+
+    {tab==='customers'&&<>
+      <div className="pro-page-head"><div><h2>Customers</h2><p>CRM, contact details and loyalty</p></div></div>
+      <div className="pro-form-card"><input placeholder="Name" value={custForm.name} onChange={e=>setCustForm({...custForm,name:e.target.value})}/><input placeholder="Phone" value={custForm.phone} onChange={e=>setCustForm({...custForm,phone:e.target.value})}/><input placeholder="Address" value={custForm.address} onChange={e=>setCustForm({...custForm,address:e.target.value})}/><button className="primary-btn" onClick={addCust}>Add Customer</button></div>
+      <div className="pro-card"><div className="pro-table"><div className="pro-tr pro-th"><span>Customer</span><span>Phone</span><span>Address</span><span>Points</span></div>{customers.map(c=><div className="pro-tr" key={c.id}><span><b>{c.name}</b></span><span>{c.phone||'—'}</span><span>{c.address||'—'}</span><span><b>{Math.round(c.points||0)}</b></span></div>)}</div></div>
+    </>}
+
+    {tab==='suppliers'&&<>
+      <div className="pro-page-head"><div><h2>Suppliers & Purchases</h2><p>Supplier records and stock receiving</p></div><button className="primary-btn" onClick={purchase}>Receive Purchase</button></div>
+      <div className="pro-form-card"><input placeholder="Supplier name" value={supForm.name} onChange={e=>setSupForm({...supForm,name:e.target.value})}/><input placeholder="Phone" value={supForm.phone} onChange={e=>setSupForm({...supForm,phone:e.target.value})}/><input placeholder="Email" value={supForm.email} onChange={e=>setSupForm({...supForm,email:e.target.value})}/><button className="primary-btn" onClick={addSup}>Add Supplier</button></div>
+      <div className="pro-dashboard-grid"><div className="pro-card"><div className="pro-card-head"><h3>Suppliers</h3></div>{suppliers.map(s=><div className="simple-row" key={s.id}><span><b>{s.name}</b><small>{s.phone}</small></span><span>{s.email}</span></div>)}</div><div className="pro-card"><div className="pro-card-head"><h3>Recent Purchases</h3></div>{purchases.slice(0,20).map(p=><div className="simple-row" key={p.id}><span>Purchase #{p.id}</span><b>{money(p.total)}</b></div>)}</div></div>
+    </>}
+
+    {tab==='expenses'&&<>
+      <div className="pro-page-head"><div><h2>Expenses</h2><p>Petty cash and operating costs</p></div></div>
+      <div className="pro-form-card"><input placeholder="Expense" value={expForm.title} onChange={e=>setExpForm({...expForm,title:e.target.value})}/><input type="number" placeholder="Amount" value={expForm.amount} onChange={e=>setExpForm({...expForm,amount:e.target.value})}/><input placeholder="Category" value={expForm.category} onChange={e=>setExpForm({...expForm,category:e.target.value})}/><button className="primary-btn" onClick={addExpense}>Add Expense</button></div>
+      <div className="pro-card">{expenses.map(e=><div className="simple-row" key={e.id}><span><b>{e.title}</b><small>{e.category}</small></span><b>{money(e.amount)}</b></div>)}</div>
+    </>}
+
+    {tab==='staff'&&<>
+      <div className="pro-page-head"><div><h2>Staff & Access</h2><p>Roles, PIN and team management</p></div></div>
+      <div className="pro-form-card"><input placeholder="Staff name" value={staffForm.name} onChange={e=>setStaffForm({...staffForm,name:e.target.value})}/><select value={staffForm.role} onChange={e=>setStaffForm({...staffForm,role:e.target.value})}><option>cashier</option><option>waiter</option><option>kitchen</option><option>manager</option><option>admin</option></select><input placeholder="PIN" value={staffForm.pin} onChange={e=>setStaffForm({...staffForm,pin:e.target.value})}/><button className="primary-btn" onClick={addStaff}>Add Staff</button></div>
+      <div className="pro-staff-grid">{staff.map(s=><article key={s.id}><div className="pro-avatar">{s.name[0]}</div><strong>{s.name}</strong><span>{s.role}</span><small>PIN {s.pin}</small><button className="staff-permission-btn" onClick={()=>setPermissions(s)}>Permissions</button></article>)}</div>
+    </>}
+
+    {tab==='reports'&&<>
+      <div className="pro-page-head"><div><h2>Reports</h2><p>Sales and payment performance</p></div></div>
+      <div className="pro-report-hero"><div><span>Today's Net Sales</span><strong>{money(report.sales)}</strong><small>{report.orders||0} orders</small></div><div className="pay-breakdown"><div><span>Cash</span><b>{money(report.cash)}</b></div><div className="bar"><i style={{width:`${cashPct}%`}}/></div><div><span>Card</span><b>{money(report.card)}</b></div><div className="bar alt"><i style={{width:`${cardPct}%`}}/></div></div></div>
+      <div className="pro-stat-grid compact-stats"><Stat label="VAT" value={money(report.vat)} icon="%"/><Stat label="Discounts" value={money(report.discounts)} icon="−"/><Stat label="Refunds" value={money(report.refunds)} icon="↶"/><Stat label="After Expenses" value={money(report.net_after_expenses)} icon="◎"/></div>
+    </>}
+
+    {tab==='coupons'&&<>
+      <div className="pro-page-head"><div><h2>Coupons & Promotions</h2><p>Discount codes and offers</p></div></div>
+      <div className="pro-form-card"><input placeholder="Code" value={couponForm.code} onChange={e=>setCouponForm({...couponForm,code:e.target.value.toUpperCase()})}/><select value={couponForm.discount_type} onChange={e=>setCouponForm({...couponForm,discount_type:e.target.value})}><option value="fixed">Fixed AED</option><option value="percent">Percent %</option></select><input type="number" placeholder="Value" value={couponForm.value} onChange={e=>setCouponForm({...couponForm,value:e.target.value})}/><button className="primary-btn" onClick={addCoupon}>Add Coupon</button></div>
+      <div className="pro-card">{coupons.map(c=><div className="simple-row" key={c.id}><span><b>{c.code}</b></span><span>{c.discount_type} · {c.value}</span></div>)}</div>
+    </>}
+
+    {tab==='audit'&&<>
+      <div className="pro-page-head"><div><h2>Audit Log</h2><p>Sensitive actions and history</p></div></div>
+      <div className="pro-card">{audit.slice(0,200).map(a=><div className="audit-row" key={a.id}><time>{a.created_at.slice(0,19).replace('T',' ')}</time><div><b>{a.action}</b><span>{a.entity} #{a.entity_id}</span><small>{a.details}</small></div></div>)}</div>
+    </>}
+
+    {tab==='advanced'&&<>
+      <div className="pro-page-head"><div><h2>Advanced Operations</h2><p>Food cost, kitchen routing, transfers and deals</p></div></div>
+      <div className="pro-dashboard-grid">
+       <div className="pro-card"><div className="pro-card-head"><h3>Food Cost</h3></div>{foodCost.slice(0,25).map(f=><div className="simple-row" key={f.menu_item_id}><span>{f.name}</span><b>{money(f.ingredient_cost)} · {f.food_cost_percent}%</b></div>)}</div>
+       <div className="pro-card"><div className="pro-card-head"><h3>Kitchen Stations</h3><button onClick={async()=>{const name=prompt('Station name');if(!name)return;const cats=(prompt('Categories comma separated')||'').split(',').map(x=>x.trim()).filter(Boolean);await post('/kitchen-stations',{name,categories:cats,printer_id:null,active:true})}}>Add</button></div>{stations.map(s=><div className="simple-row" key={s.id}><b>{s.name}</b><span>{s.categories.join(', ')||'All'}</span></div>)}</div>
+       <div className="pro-card"><div className="pro-card-head"><h3>Stock Transfers</h3><button onClick={async()=>{const id=prompt('Inventory item ID');const q=prompt('Qty');if(!id||!q)return;await post('/stock-transfer',{inventory_item_id:+id,qty:+q,from_location:prompt('From','Main')||'Main',to_location:prompt('To','Branch')||'Branch'})}}>Transfer</button></div>{transfers.slice(0,20).map(t=><div className="simple-row" key={t.id}><span>Item #{t.inventory_item_id} · {t.qty}</span><b>{t.from_location} → {t.to_location}</b></div>)}</div>
+       <div className="pro-card"><div className="pro-card-head"><h3>Deals / Combos</h3><button onClick={async()=>{const name=prompt('Deal name');const price=prompt('Deal price');if(!name||!price)return;await post('/deals',{name,price:+price,rules:[],active:true})}}>Add</button></div>{deals.map(d=><div className="simple-row" key={d.id}><span>{d.name}</span><b>{money(d.price)}</b></div>)}</div>
+      </div>
+    </>}
+
+    {tab==='printer'&&<>
+      <div className="pro-page-head"><div><h2>Printer & Shop Settings</h2><p>Receipt details and network printer</p></div></div>
+      <div className="pro-settings-grid">
+       <div className="pro-settings-card"><div className="settings-icon">🏪</div><h3>Restaurant Details</h3><label>Shop Name<input value={settings.shop_name||''} onChange={e=>setSettings({...settings,shop_name:e.target.value})}/></label><label>Phone<input value={settings.shop_phone||''} onChange={e=>setSettings({...settings,shop_phone:e.target.value})}/></label><label>Address<input value={settings.shop_address||''} onChange={e=>setSettings({...settings,shop_address:e.target.value})}/></label><label>TRN<input value={settings.trn||''} onChange={e=>setSettings({...settings,trn:e.target.value})}/></label><label>VAT %<input type="number" value={settings.vat_percent||5} onChange={e=>setSettings({...settings,vat_percent:+e.target.value})}/></label><label>Receipt Footer<input value={settings.receipt_footer||''} onChange={e=>setSettings({...settings,receipt_footer:e.target.value})}/></label></div>
+       <div className="pro-settings-card"><div className="settings-icon">🖨️</div><h3>Receipt Printer</h3><label>Printer IP<input placeholder="192.168.1.50" value={settings.printer_ip||''} onChange={e=>setSettings({...settings,printer_ip:e.target.value})}/></label><label>Port<input type="number" value={settings.printer_port||9100} onChange={e=>setSettings({...settings,printer_port:+e.target.value})}/></label><label className="pro-toggle"><span><b>Auto Print</b><small>Print receipt after order</small></span><input type="checkbox" checked={!!settings.auto_print} onChange={e=>setSettings({...settings,auto_print:e.target.checked})}/></label><label className="pro-toggle"><span><b>Require Open Shift</b><small>Cashier must open shift</small></span><input type="checkbox" checked={!!settings.require_shift} onChange={e=>setSettings({...settings,require_shift:e.target.checked})}/></label><label className="pro-toggle"><span><b>Kitchen Sound</b><small>New order alert</small></span><input type="checkbox" checked={!!settings.kitchen_sound} onChange={e=>setSettings({...settings,kitchen_sound:e.target.checked})}/></label><div className="button-row"><button className="secondary-btn" onClick={testPrinter}>Test Printer</button><button className="primary-btn" onClick={saveSettings}>Save Settings</button></div></div>
+      </div>
+    </>}
+   </section>
+  </div>
+ </Shell>
 }

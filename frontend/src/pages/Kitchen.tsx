@@ -13,6 +13,7 @@ export default function Kitchen(){
   const [orders,setOrders] = useState<Order[]>([])
   const [filter,setFilter] = useState('all')
   const [lastCount,setLastCount]=useState(0)
+  const [settings,setSettings]=useState<any>({})
 
   const load = async()=>{
     const data = await api<Order[]>('/orders')

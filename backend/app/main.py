@@ -487,7 +487,7 @@ def seed():
         "allow_hold_orders": "true",
         "allow_split_payment": "true",
         "allow_delivery": "true",
-        "allow_dinein": "true",
+        "allow_dinein": "false",
         "allow_takeaway": "true",
         "allow_customer_display": "true",
         "allow_waiter_payment": "false",
@@ -496,6 +496,7 @@ def seed():
         "show_prices_in_kitchen": "false",
         "show_shift_to_waiter": "false",
         "show_shift_to_kitchen": "false",
+        "auto_cash_drawer": "true",
     }
     for k, v in defaults.items():
         if not db.query(Setting).filter(Setting.key == k).first():
@@ -689,6 +690,7 @@ class SettingsIn(BaseModel):
     show_prices_in_kitchen: bool = False
     show_shift_to_waiter: bool = False
     show_shift_to_kitchen: bool = False
+    auto_cash_drawer: bool = True
 
 
 # -------------------- APP --------------------
@@ -1426,9 +1428,9 @@ def add_order(x: OrderIn):
     if x.order_type == "delivery" and not flag(db, "allow_delivery", True):
         db.close()
         raise HTTPException(403, "Delivery is disabled")
-    if x.order_type == "dinein" and not flag(db, "allow_dinein", True):
+    if x.order_type == "dinein":
         db.close()
-        raise HTTPException(403, "Dine-in is disabled")
+        raise HTTPException(403, "Dine-in/Table ordering is disabled")
     if x.order_type == "takeaway" and not flag(db, "allow_takeaway", True):
         db.close()
         raise HTTPException(403, "Takeaway is disabled")
@@ -1738,12 +1740,12 @@ def settings():
         "kitchen_sound", "require_shift", "currency",
         "payment_terminal_provider", "payment_terminal_enabled",
         "customer_display_enabled", "offline_queue_enabled", "receipt_logo",
-        "app_enabled", "shop_open", "vat_enabled", "allow_discounts", "allow_coupons", "allow_refunds", "allow_voids", "allow_hold_orders", "allow_split_payment", "allow_delivery", "allow_dinein", "allow_takeaway", "allow_customer_display", "allow_waiter_payment", "kitchen_can_cancel", "manager_pin_required_for_kitchen_cancel", "show_prices_in_kitchen", "show_shift_to_waiter", "show_shift_to_kitchen"
+        "app_enabled", "shop_open", "vat_enabled", "allow_discounts", "allow_coupons", "allow_refunds", "allow_voids", "allow_hold_orders", "allow_split_payment", "allow_delivery", "allow_dinein", "allow_takeaway", "allow_customer_display", "allow_waiter_payment", "kitchen_can_cancel", "manager_pin_required_for_kitchen_cancel", "show_prices_in_kitchen", "show_shift_to_waiter", "show_shift_to_kitchen", "auto_cash_drawer"
     ]
     d = {k: get_setting(db, k, "") for k in keys}
     d["vat_percent"] = float(d["vat_percent"] or 5)
     d["printer_port"] = int(d["printer_port"] or 9100)
-    for k in ["auto_print", "kitchen_sound", "require_shift", "payment_terminal_enabled", "customer_display_enabled", "offline_queue_enabled", "app_enabled", "shop_open", "vat_enabled", "allow_discounts", "allow_coupons", "allow_refunds", "allow_voids", "allow_hold_orders", "allow_split_payment", "allow_delivery", "allow_dinein", "allow_takeaway", "allow_customer_display", "allow_waiter_payment", "kitchen_can_cancel", "manager_pin_required_for_kitchen_cancel", "show_prices_in_kitchen", "show_shift_to_waiter", "show_shift_to_kitchen"]:
+    for k in ["auto_print", "kitchen_sound", "require_shift", "payment_terminal_enabled", "customer_display_enabled", "offline_queue_enabled", "app_enabled", "shop_open", "vat_enabled", "allow_discounts", "allow_coupons", "allow_refunds", "allow_voids", "allow_hold_orders", "allow_split_payment", "allow_delivery", "allow_dinein", "allow_takeaway", "allow_customer_display", "allow_waiter_payment", "kitchen_can_cancel", "manager_pin_required_for_kitchen_cancel", "show_prices_in_kitchen", "show_shift_to_waiter", "show_shift_to_kitchen", "auto_cash_drawer"]:
         d[k] = str(d[k]).lower() == "true"
     db.close()
     return d

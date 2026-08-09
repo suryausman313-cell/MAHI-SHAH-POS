@@ -1,4 +1,4 @@
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional, List, Any
 import json, os
 
@@ -482,6 +482,13 @@ def seed():
         "vat_enabled": "true",
         "vat_inclusive": "true",
         "cashier_card_size": "auto",
+        "business_timezone_offset_minutes": "240",
+        "morning_sales_label": "Morning",
+        "morning_sales_start": "08:00",
+        "morning_sales_end": "16:00",
+        "evening_sales_label": "Evening",
+        "evening_sales_start": "16:00",
+        "evening_sales_end": "01:00",
         "allow_discounts": "true",
         "allow_coupons": "false",
         "allow_refunds": "true",
@@ -678,6 +685,13 @@ class SettingsIn(BaseModel):
     vat_enabled: bool = True
     vat_inclusive: bool = True
     cashier_card_size: str = "auto"
+    business_timezone_offset_minutes: int = 240
+    morning_sales_label: str = "Morning"
+    morning_sales_start: str = "08:00"
+    morning_sales_end: str = "16:00"
+    evening_sales_label: str = "Evening"
+    evening_sales_start: str = "16:00"
+    evening_sales_end: str = "01:00"
     allow_discounts: bool = True
     allow_coupons: bool = True
     allow_refunds: bool = True
@@ -1758,6 +1772,7 @@ def settings():
     d = {k: get_setting(db, k, "") for k in keys}
     d["vat_percent"] = float(d["vat_percent"] or 5)
     d["printer_port"] = int(d["printer_port"] or 9100)
+    d["business_timezone_offset_minutes"] = int(d.get("business_timezone_offset_minutes") or 240)
     for k in ["auto_print", "kitchen_sound", "require_shift", "payment_terminal_enabled", "customer_display_enabled", "offline_queue_enabled", "app_enabled", "shop_open", "vat_enabled", "vat_inclusive", "allow_discounts", "allow_coupons", "allow_refunds", "allow_voids", "allow_hold_orders", "allow_split_payment", "allow_delivery", "allow_dinein", "allow_takeaway", "allow_customer_display", "allow_waiter_payment", "kitchen_can_cancel", "manager_pin_required_for_kitchen_cancel", "show_prices_in_kitchen", "show_shift_to_waiter", "show_shift_to_kitchen", "auto_cash_drawer"]:
         d[k] = str(d[k]).lower() == "true"
     db.close()
@@ -1943,6 +1958,100 @@ def payment_terminal_charge(x:PaymentTerminalChargeIn):
         raise HTTPException(400,"Payment terminal provider is not configured")
     return {"ok":False,"provider":provider,"status":"integration_required",
             "message":"Add the selected provider's official SDK/API credentials to complete real terminal charging."}
+
+
+
+def _business_local_dt(db, dt):
+    offset = int(get_setting(db, "business_timezone_offset_minutes", "240"))
+    return dt + timedelta(minutes=offset)
+
+def _hhmm_minutes(value: str):
+    try:
+        h, m = value.split(":")
+        return int(h) * 60 + int(m)
+    except:
+        return 0
+
+def _in_time_window(local_dt, start_hhmm: str, end_hhmm: str):
+    minute = local_dt.hour * 60 + local_dt.minute
+    start = _hhmm_minutes(start_hhmm)
+    end = _hhmm_minutes(end_hhmm)
+    if start == end:
+        return True
+    if start < end:
+        return start <= minute < end
+    # Overnight window, e.g. 16:00 -> 01:00
+    return minute >= start or minute < end
+
+def _business_date_for_window(local_dt, start_hhmm: str, end_hhmm: str):
+    # For overnight periods, after-midnight sales belong to the previous business date.
+    start = _hhmm_minutes(start_hhmm)
+    end = _hhmm_minutes(end_hhmm)
+    minute = local_dt.hour * 60 + local_dt.minute
+    d = local_dt.date()
+    if start > end and minute < end:
+        d = d - timedelta(days=1)
+    return d
+
+def _sales_bucket(rows):
+    valid = [o for o in rows if o.status not in {"cancelled", "held"}]
+    return {
+        "orders": len(valid),
+        "gross_sales": round(sum(max(0, o.total - o.refund_amount) for o in valid), 2),
+        "cash": round(sum(max(0, o.cash_paid) for o in valid) - sum(o.refund_amount for o in valid if o.payment_method == "cash"), 2),
+        "card": round(sum(max(0, o.card_paid) for o in valid) - sum(o.refund_amount for o in valid if o.payment_method == "card"), 2),
+        "vat": round(sum(max(0, o.vat) for o in valid), 2),
+        "refunds": round(sum(max(0, o.refund_amount) for o in valid), 2),
+        "discounts": round(sum(max(0, o.discount) for o in valid), 2),
+    }
+
+@app.get("/reports/day-parts")
+def day_parts_report(business_date: Optional[str] = None):
+    db = db_session()
+    offset = int(get_setting(db, "business_timezone_offset_minutes", "240"))
+    now_local = datetime.utcnow() + timedelta(minutes=offset)
+    try:
+        target_date = datetime.strptime(business_date, "%Y-%m-%d").date() if business_date else now_local.date()
+    except:
+        db.close()
+        raise HTTPException(400, "business_date must be YYYY-MM-DD")
+
+    ml = get_setting(db, "morning_sales_label", "Morning")
+    ms = get_setting(db, "morning_sales_start", "08:00")
+    me = get_setting(db, "morning_sales_end", "16:00")
+    el = get_setting(db, "evening_sales_label", "Evening")
+    es = get_setting(db, "evening_sales_start", "16:00")
+    ee = get_setting(db, "evening_sales_end", "01:00")
+
+    all_orders = db.query(Order).all()
+    morning_rows = []
+    evening_rows = []
+    full_day_rows = []
+
+    for o in all_orders:
+        local_dt = _business_local_dt(db, o.created_at)
+
+        # Full business date: morning/date plus overnight tail that belongs to the target day.
+        local_date = local_dt.date()
+        ev_business_date = _business_date_for_window(local_dt, es, ee)
+        if local_date == target_date or (ev_business_date == target_date and _in_time_window(local_dt, es, ee)):
+            full_day_rows.append(o)
+
+        if local_dt.date() == target_date and _in_time_window(local_dt, ms, me):
+            morning_rows.append(o)
+
+        if _in_time_window(local_dt, es, ee) and _business_date_for_window(local_dt, es, ee) == target_date:
+            evening_rows.append(o)
+
+    out = {
+        "business_date": target_date.isoformat(),
+        "timezone_offset_minutes": offset,
+        "morning": {"label": ml, "start": ms, "end": me, **_sales_bucket(morning_rows)},
+        "evening": {"label": el, "start": es, "end": ee, **_sales_bucket(evening_rows)},
+        "full_day": _sales_bucket(full_day_rows),
+    }
+    db.close()
+    return out
 
 
 # REPORTS / AUDIT / BACKUP

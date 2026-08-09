@@ -7,6 +7,7 @@ export type MenuItem = {
   barcode?:string
   sku?:string
   modifiers?:{id:number;name:string;price:number}[]
+  image?:string
 }
 
 export type PosTable = {
@@ -79,4 +80,23 @@ export type Settings = {
   currency?:string
   payment_terminal_provider?:string
   payment_terminal_enabled?:boolean
+  app_enabled?:boolean
+  shop_open?:boolean
+  vat_enabled?:boolean
+  allow_discounts?:boolean
+  allow_coupons?:boolean
+  allow_refunds?:boolean
+  allow_voids?:boolean
+  allow_hold_orders?:boolean
+  allow_split_payment?:boolean
+  allow_delivery?:boolean
+  allow_dinein?:boolean
+  allow_takeaway?:boolean
+  allow_customer_display?:boolean
+  allow_waiter_payment?:boolean
+  kitchen_can_cancel?:boolean
+  manager_pin_required_for_kitchen_cancel?:boolean
+  show_prices_in_kitchen?:boolean
+  show_shift_to_waiter?:boolean
+  show_shift_to_kitchen?:boolean
 }

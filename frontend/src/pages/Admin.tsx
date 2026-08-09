@@ -53,7 +53,7 @@ export default function Admin(){
    shop_name:'',shop_phone:'',shop_address:'',trn:'',vat_percent:5,
    receipt_footer:'Thank you!',printer_ip:'',printer_port:9100,auto_print:false,
    kitchen_sound:true,require_shift:true,currency:'AED',
-   payment_terminal_provider:'',payment_terminal_enabled:false
+   payment_terminal_provider:'',payment_terminal_enabled:false,auto_cash_drawer:true
  })
  const[menuForm,setMenuForm]=useState({name:'',category:'General',price:'',barcode:''})
  const[invForm,setInvForm]=useState({name:'',unit:'pcs',qty:''})
@@ -235,24 +235,9 @@ export default function Admin(){
        </div>
 
        <div className="control-card"><h3>Order Types</h3>
-        <label><span><b>Takeaway</b></span><input type="checkbox" checked={settings.allow_takeaway!==false} onChange={e=>setSettings({...settings,allow_takeaway:e.target.checked})}/></label>
-        <label><span><b>Dine In</b></span><input type="checkbox" checked={settings.allow_dinein!==false} onChange={e=>setSettings({...settings,allow_dinein:e.target.checked})}/></label>
-        <label><span><b>Delivery</b></span><input type="checkbox" checked={settings.allow_delivery!==false} onChange={e=>setSettings({...settings,allow_delivery:e.target.checked})}/></label>
+        <label><span><b>Takeaway</b><small>Always available on Cashier</small></span><input type="checkbox" checked={true} disabled/></label>
+        <label><span><b>Delivery</b><small>Admin can show/hide Delivery on Cashier</small></span><input type="checkbox" checked={settings.allow_delivery!==false} onChange={e=>setSettings({...settings,allow_delivery:e.target.checked})}/></label>
         <label><span><b>Hold / Recall</b></span><input type="checkbox" checked={settings.allow_hold_orders!==false} onChange={e=>setSettings({...settings,allow_hold_orders:e.target.checked})}/></label>
-       </div>
-
-       <div className="control-card"><h3>Security & Cancellation</h3>
-        <label><span><b>Refunds</b><small>Manager PIN still required</small></span><input type="checkbox" checked={settings.allow_refunds!==false} onChange={e=>setSettings({...settings,allow_refunds:e.target.checked})}/></label>
-        <label><span><b>Void Orders</b><small>Manager PIN still required</small></span><input type="checkbox" checked={settings.allow_voids!==false} onChange={e=>setSettings({...settings,allow_voids:e.target.checked})}/></label>
-        <label><span><b>Kitchen Cancel</b><small>Kitchen can request cancellation</small></span><input type="checkbox" checked={settings.kitchen_can_cancel!==false} onChange={e=>setSettings({...settings,kitchen_can_cancel:e.target.checked})}/></label>
-        <label><span><b>Manager PIN for Kitchen Cancel</b></span><input type="checkbox" checked={settings.manager_pin_required_for_kitchen_cancel!==false} onChange={e=>setSettings({...settings,manager_pin_required_for_kitchen_cancel:e.target.checked})}/></label>
-       </div>
-
-       <div className="control-card"><h3>Screen Visibility</h3>
-        <label><span><b>Customer Display</b></span><input type="checkbox" checked={settings.allow_customer_display!==false} onChange={e=>setSettings({...settings,allow_customer_display:e.target.checked})}/></label>
-        <label><span><b>Waiter Payment Controls</b></span><input type="checkbox" checked={!!settings.allow_waiter_payment} onChange={e=>setSettings({...settings,allow_waiter_payment:e.target.checked})}/></label>
-        <label><span><b>Kitchen Prices</b></span><input type="checkbox" checked={!!settings.show_prices_in_kitchen} onChange={e=>setSettings({...settings,show_prices_in_kitchen:e.target.checked})}/></label>
-        <label><span><b>Kitchen Sound</b></span><input type="checkbox" checked={settings.kitchen_sound!==false} onChange={e=>setSettings({...settings,kitchen_sound:e.target.checked})}/></label>
        </div>
       </div>
 
@@ -343,7 +328,7 @@ export default function Admin(){
       <div className="pro-page-head"><div><h2>Printer & Shop Settings</h2><p>Receipt details and network printer</p></div></div>
       <div className="pro-settings-grid">
        <div className="pro-settings-card"><div className="settings-icon">🏪</div><h3>Restaurant Details</h3><label>Shop Name<input value={settings.shop_name||''} onChange={e=>setSettings({...settings,shop_name:e.target.value})}/></label><label>Phone<input value={settings.shop_phone||''} onChange={e=>setSettings({...settings,shop_phone:e.target.value})}/></label><label>Address<input value={settings.shop_address||''} onChange={e=>setSettings({...settings,shop_address:e.target.value})}/></label><label>TRN<input value={settings.trn||''} onChange={e=>setSettings({...settings,trn:e.target.value})}/></label><label>VAT %<input type="number" value={settings.vat_percent||5} onChange={e=>setSettings({...settings,vat_percent:+e.target.value})}/></label><label>Receipt Footer<input value={settings.receipt_footer||''} onChange={e=>setSettings({...settings,receipt_footer:e.target.value})}/></label></div>
-       <div className="pro-settings-card"><div className="settings-icon">🖨️</div><h3>Receipt Printer</h3><label>Printer IP<input placeholder="192.168.1.50" value={settings.printer_ip||''} onChange={e=>setSettings({...settings,printer_ip:e.target.value})}/></label><label>Port<input type="number" value={settings.printer_port||9100} onChange={e=>setSettings({...settings,printer_port:+e.target.value})}/></label><label className="pro-toggle"><span><b>Auto Print</b><small>Print receipt after order</small></span><input type="checkbox" checked={!!settings.auto_print} onChange={e=>setSettings({...settings,auto_print:e.target.checked})}/></label><label className="pro-toggle"><span><b>Require Open Shift</b><small>Cashier must open shift</small></span><input type="checkbox" checked={!!settings.require_shift} onChange={e=>setSettings({...settings,require_shift:e.target.checked})}/></label><label className="pro-toggle"><span><b>Kitchen Sound</b><small>New order alert</small></span><input type="checkbox" checked={!!settings.kitchen_sound} onChange={e=>setSettings({...settings,kitchen_sound:e.target.checked})}/></label><div className="button-row"><button className="secondary-btn" onClick={testPrinter}>Test Printer</button><button className="primary-btn" onClick={saveSettings}>Save Settings</button></div></div>
+       <div className="pro-settings-card"><div className="settings-icon">🖨️</div><h3>Receipt Printer</h3><label>Printer IP<input placeholder="192.168.1.50" value={settings.printer_ip||''} onChange={e=>setSettings({...settings,printer_ip:e.target.value})}/></label><label>Port<input type="number" value={settings.printer_port||9100} onChange={e=>setSettings({...settings,printer_port:+e.target.value})}/></label><label className="pro-toggle"><span><b>Auto Print</b><small>Print receipt after order</small></span><input type="checkbox" checked={!!settings.auto_print} onChange={e=>setSettings({...settings,auto_print:e.target.checked})}/></label><label className="pro-toggle"><span><b>Auto Cash Drawer</b><small>Open drawer after cash sale</small></span><input type="checkbox" checked={settings.auto_cash_drawer!==false} onChange={e=>setSettings({...settings,auto_cash_drawer:e.target.checked})}/></label><label className="pro-toggle"><span><b>Require Open Shift</b><small>Cashier must open shift</small></span><input type="checkbox" checked={!!settings.require_shift} onChange={e=>setSettings({...settings,require_shift:e.target.checked})}/></label><label className="pro-toggle"><span><b>Kitchen Sound</b><small>New order alert</small></span><input type="checkbox" checked={!!settings.kitchen_sound} onChange={e=>setSettings({...settings,kitchen_sound:e.target.checked})}/></label><div className="button-row"><button className="secondary-btn" onClick={testPrinter}>Test Printer</button><button className="primary-btn" onClick={saveSettings}>Save Settings</button></div></div>
       </div>
     </>}
    </section>

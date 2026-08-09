@@ -1,11 +1,11 @@
 import React, {useEffect, useMemo, useState} from 'react'
-import {api, money, sendToIpPrinter} from '../api'
+import {api, money, sendToIpPrinter, openCashDrawer} from '../api'
 import type {MenuItem, PosTable, Staff, Settings} from '../types'
 
 type Customer={id:number;name:string;phone:string;address:string;points:number}
 type Shift={id:number;opening_cash:number;expected_cash:number;cash_sales:number;card_sales:number}
 
-export default function OrderBuilder({waiterMode=false}:{waiterMode?:boolean}){
+export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{waiterMode?:boolean;cashierCompact?:boolean}){
   const loggedUser=(()=>{try{return JSON.parse(localStorage.getItem('mahi_user')||'null')}catch{return null}})()
   const isCashier=loggedUser?.role==='cashier'||loggedUser?.role==='admin'||loggedUser?.role==='manager'
   const isWaiter=loggedUser?.role==='waiter'||waiterMode
@@ -21,7 +21,7 @@ export default function OrderBuilder({waiterMode=false}:{waiterMode?:boolean}){
   const [category,setCategory]=useState('All')
   const [search,setSearch]=useState('')
   const [barcode,setBarcode]=useState('')
-  const [type,setType]=useState(waiterMode?'dinein':'takeaway')
+  const [type,setType]=useState('takeaway')
   const [pay,setPay]=useState('cash')
   const [discount,setDiscount]=useState(0)
   const [cashPaid,setCashPaid]=useState(0)
@@ -33,6 +33,8 @@ export default function OrderBuilder({waiterMode=false}:{waiterMode?:boolean}){
   const [coupon,setCoupon]=useState('')
   const [saving,setSaving]=useState(false)
   const [lastOrderId,setLastOrderId]=useState<number|null>(null)
+  const [cashierMenuOpen,setCashierMenuOpen]=useState(false)
+  const [toolsOpen,setToolsOpen]=useState(false)
 
   const load=async()=>{
     const [m,t,s,c,st,sh,h]=await Promise.all([
@@ -93,6 +95,48 @@ export default function OrderBuilder({waiterMode=false}:{waiterMode?:boolean}){
     }catch(e:any){alert(e.message)}
   }
 
+
+  const cashMove=async(kind:'in'|'out')=>{
+    if(!shift){alert('Open shift first');return}
+    const amount=prompt(kind==='in'?'Cash In amount AED':'Cash Out amount AED')
+    if(!amount)return
+    const reason=prompt('Reason')||''
+    try{
+      await api(`/shifts/${shift.id}/cash`,{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({movement_type:kind,amount:+amount||0,reason})
+      })
+      await load()
+      alert(kind==='in'?'Cash In saved':'Cash Out saved')
+    }catch(e:any){alert(e.message)}
+  }
+
+  const addExpenseQuick=async()=>{
+    const title=prompt('Expense name')
+    if(!title)return
+    const amount=prompt('Expense amount AED')
+    if(!amount)return
+    const category=prompt('Category','General')||'General'
+    try{
+      await api('/expenses',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({title,amount:+amount||0,category})
+      })
+      alert('Expense saved')
+    }catch(e:any){alert(e.message)}
+  }
+
+  const manualDrawer=async()=>{
+    if(!settings)return
+    try{await openCashDrawer(settings);alert('Cash drawer opened')}
+    catch(e:any){alert(e.message)}
+  }
+
+  const logout=()=>{
+    localStorage.removeItem('mahi_user')
+    location.href='/login'
+  }
+
   const addCustomer=async()=>{
     const name=prompt('Customer name'); if(!name)return
     const phone=prompt('Phone')||''
@@ -106,14 +150,13 @@ export default function OrderBuilder({waiterMode=false}:{waiterMode?:boolean}){
       menu_item_id:+id,qty:q,modifier_ids:mods[+id]||[]
     }))
     if(!items.length){alert('Add items first');return}
-    if(type==='dinein'&&!tableId){alert('Select table');return}
-    if(isCashier&&settings?.require_shift&&!shift){alert('Open shift first');return}
+        if(isCashier&&settings?.require_shift&&!shift){alert('Open shift first');return}
     if(pay==='split'&&Math.abs((cashPaid+cardPaid)-total)>.01){alert('Cash + Card must equal total');return}
     setSaving(true)
     try{
       const created:any=await api('/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
         items,order_type:type,payment_method:pay,cash_paid:pay==='split'?cashPaid:null,
-        card_paid:pay==='split'?cardPaid:null,table_id:tableId||null,waiter_id:waiterId||null,
+        card_paid:pay==='split'?cardPaid:null,table_id:null,waiter_id:waiterId||null,
         customer_id:customerId||null,shift_id:shift?.id||null,discount,coupon_code:coupon,
         delivery_address:deliveryAddress,hold
       })})
@@ -121,6 +164,9 @@ export default function OrderBuilder({waiterMode=false}:{waiterMode?:boolean}){
       if(!hold&&settings?.auto_print&&settings?.printer_ip){
         try{const full:any=await api('/orders/'+created.id);await sendToIpPrinter(full,settings)}
         catch(e:any){alert(`Order saved but print failed: ${e.message}`)}
+      }
+      if(!hold && pay==='cash' && settings?.auto_cash_drawer!==false){
+        try{await openCashDrawer(settings)}catch(e:any){console.warn('Drawer:',e.message)}
       }
       alert(hold?`Order #${created.id} held`:`Order #${created.id} saved`)
       await load()
@@ -138,20 +184,32 @@ export default function OrderBuilder({waiterMode=false}:{waiterMode?:boolean}){
     return <div className="closed-screen"><div><b>Shop Closed</b><span>Admin has closed ordering. Admin can reopen it from Control Center.</span></div></div>
   }
 
-  return <div className="pos-workspace">
+  return <div className={`pos-workspace ${cashierCompact?'cashier-clean-workspace':''}`}>
     <div className="product-area">
-      {isCashier&&<div className="shift-strip"><div>{shift?<><b>Shift #{shift.id} OPEN</b><span>Expected cash {money(shift.expected_cash)}</span></>:<><b>No open shift</b><span>Open shift before sales</span></>}</div>{shift?<button onClick={closeShift}>Close Shift</button>:<button onClick={openShift}>Open Shift</button>}</div>}
+      {cashierCompact&&isCashier&&<div className="cashier-clean-head">
+        <button className="hamburger-btn" onClick={()=>setCashierMenuOpen(true)}>☰</button>
+        <div className={`cashier-shift-mini ${shift?'open':'closed'}`}>
+          <i></i><span>{shift?`Shift #${shift.id} Open`:'Shift Closed'}</span>
+        </div>
+        <div className="cashier-clock">{new Date().toLocaleDateString('en-GB')}</div>
+      </div>}
+      {isCashier&&!cashierCompact&&<div className="shift-strip"><div>{shift?<><b>Shift #{shift.id} OPEN</b><span>Expected cash {money(shift.expected_cash)}</span></>:<><b>No open shift</b><span>Open shift before sales</span></>}</div>{shift?<button onClick={closeShift}>Close Shift</button>:<button onClick={openShift}>Open Shift</button>}</div>}
       <div className="pos-toolbar">
         <div className="segment">
-          {settings?.allow_takeaway!==false&&<button disabled={waiterMode} className={type==='takeaway'?'selected':''} onClick={()=>setType('takeaway')}>Takeaway</button>}
-          {settings?.allow_dinein!==false&&<button className={type==='dinein'?'selected':''} onClick={()=>setType('dinein')}>Dine In</button>}
-          {settings?.allow_delivery!==false&&<button disabled={waiterMode} className={type==='delivery'?'selected':''} onClick={()=>setType('delivery')}>Delivery</button>}
+          <button className={type==='takeaway'?'selected':''} onClick={()=>setType('takeaway')}>Takeaway</button>
+          {settings?.allow_delivery!==false&&<button className={type==='delivery'?'selected':''} onClick={()=>setType('delivery')}>Delivery</button>}
         </div>
-        <input className="search-box" placeholder="Search products..." value={search} onChange={e=>setSearch(e.target.value)}/>
-        <div className="barcode-box"><input placeholder="Barcode" value={barcode} onChange={e=>setBarcode(e.target.value)} onKeyDown={e=>e.key==='Enter'&&scan()}/><button onClick={scan}>Scan</button></div>
-        {type==='dinein'&&<select value={tableId||''} onChange={e=>setTableId(+e.target.value||undefined)}><option value="">Select table</option>{tables.map(t=><option key={t.id} value={t.id}>{t.name} · {t.status}</option>)}</select>}
-        {isWaiter?<div className="staff-fixed-pill">Waiter: {loggedUser?.name||'Current staff'}</div>:<select value={waiterId||''} onChange={e=>setWaiterId(+e.target.value||undefined)}><option value="">No waiter</option>{staff.filter(s=>s.role==='waiter').map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>}
+        {!cashierCompact&&<input className="search-box" placeholder="Search products..." value={search} onChange={e=>setSearch(e.target.value)}/>}
+        {!cashierCompact&&<div className="barcode-box"><input placeholder="Barcode" value={barcode} onChange={e=>setBarcode(e.target.value)} onKeyDown={e=>e.key==='Enter'&&scan()}/><button onClick={scan}>Scan</button></div>}
+        
+        {isWaiter?<div className="staff-fixed-pill">Waiter: {loggedUser?.name||'Current staff'}</div>:!cashierCompact&&<select value={waiterId||''} onChange={e=>setWaiterId(+e.target.value||undefined)}><option value="">No waiter</option>{staff.filter(s=>s.role==='waiter').map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>}
+        {cashierCompact&&<button className="cashier-tool-btn" onClick={()=>setToolsOpen(!toolsOpen)}>⌕</button>}
       </div>
+      {cashierCompact&&toolsOpen&&<div className="cashier-tools-panel">
+        <input className="search-box" placeholder="Search menu..." value={search} onChange={e=>setSearch(e.target.value)}/>
+        <div className="barcode-box"><input placeholder="Barcode" value={barcode} onChange={e=>setBarcode(e.target.value)} onKeyDown={e=>e.key==='Enter'&&scan()}/><button onClick={scan}>Scan</button></div>
+        <select value={waiterId||''} onChange={e=>setWaiterId(+e.target.value||undefined)}><option value="">No waiter</option>{staff.filter(s=>s.role==='waiter').map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>
+      </div>}
       <div className="category-tabs">{categories.map(c=><button key={c} className={category===c?'active':''} onClick={()=>setCategory(c)}>{c}</button>)}</div>
       <div className="product-grid">{filtered.map(item=><div className="product-card-wrap" key={item.id}><button className="product-card" onClick={()=>qty(item.id,1)}><div className="product-photo">{item.image?<img src={item.image} alt={item.name}/>:<span>{item.name[0]}</span>}</div><div className="product-info"><small>{item.category}</small><strong>{item.name}</strong><b>{money(item.price)}</b></div>{(cart[item.id]||0)>0&&<em>{cart[item.id]}</em>}</button>{(cart[item.id]||0)>0&&item.modifiers?.length?<div className="modifier-mini">{item.modifiers.map(m=><label key={m.id}><input type="checkbox" checked={(mods[item.id]||[]).includes(m.id)} onChange={()=>toggleMod(item.id,m.id)}/>{m.name} +{m.price}</label>)}</div>:null}</div>)}</div>
     </div>
@@ -168,5 +226,43 @@ export default function OrderBuilder({waiterMode=false}:{waiterMode?:boolean}){
         {held.length>0&&<div className="held-box"><b>Held orders</b>{held.slice(0,5).map(h=><button key={h.id} onClick={()=>recall(h.id)}>Recall #{h.id} · {money(h.total)}</button>)}</div>}
       </div>
     </aside>
+
+    {cashierCompact&&cashierMenuOpen&&<div className="cashier-drawer-backdrop" onClick={()=>setCashierMenuOpen(false)}>
+      <aside className="cashier-drawer-menu" onClick={e=>e.stopPropagation()}>
+        <div className="cashier-drawer-title">
+          <div><strong>Cashier Menu</strong><span>{loggedUser?.name||'Cashier'}</span></div>
+          <button onClick={()=>setCashierMenuOpen(false)}>×</button>
+        </div>
+
+        <section>
+          <small>SHIFT & CASH</small>
+          {!shift?<button onClick={()=>{setCashierMenuOpen(false);openShift()}}>◷ Open Shift</button>:<>
+            <button onClick={()=>{setCashierMenuOpen(false);closeShift()}}>◷ Close Shift</button>
+            <button onClick={()=>cashMove('in')}>＋ Cash In</button>
+            <button onClick={()=>cashMove('out')}>− Cash Out</button>
+          </>}
+          <button onClick={addExpenseQuick}>↓ Add Expense</button>
+        </section>
+
+        <section>
+          <small>ORDERS</small>
+          <button onClick={()=>{setCashierMenuOpen(false);setToolsOpen(true)}}>⌕ Search / Barcode</button>
+          {held.length>0&&<div className="drawer-held">
+            <b>Held Orders ({held.length})</b>
+            {held.slice(0,8).map(h=><button key={h.id} onClick={()=>{recall(h.id);setCashierMenuOpen(false)}}>Recall #{h.id} · {money(h.total)}</button>)}
+          </div>}
+        </section>
+
+        <section>
+          <small>DEVICE</small>
+          <button onClick={manualDrawer}>▣ Open Cash Drawer</button>
+          <button onClick={()=>location.href='/customer-display'}>▣ Customer Display</button>
+        </section>
+
+        <section className="drawer-bottom-actions">
+          <button className="logout-drawer" onClick={logout}>Log Out</button>
+        </section>
+      </aside>
+    </div>}
   </div>
 }

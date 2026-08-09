@@ -48,15 +48,28 @@ export async function sendToIpPrinter(order:any, settings:Settings){
   lines.push('--------------------------------')
   if(settings.receipt_footer) lines.push(settings.receipt_footer)
 
+  const payload = {
+    ip: settings.printer_ip,
+    port: Number(settings.printer_port || 9100),
+    lines,
+    cut: true
+  }
+
+  const nativePrinter = (window as any).AndroidPrinter
+  if(nativePrinter && typeof nativePrinter.printReceipt === 'function'){
+    const result = nativePrinter.printReceipt(JSON.stringify(payload))
+    let parsed:any = result
+    try{ parsed = JSON.parse(result) }catch{}
+    if(parsed && parsed.ok === false){
+      throw new Error(parsed.error || 'Android printer error')
+    }
+    return parsed || {ok:true}
+  }
+
   const res = await fetch(PRINT_BRIDGE + '/print',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({
-      ip:settings.printer_ip,
-      port:Number(settings.printer_port || 9100),
-      lines,
-      cut:true
-    })
+    body:JSON.stringify(payload)
   })
   const data = await res.json().catch(()=>({}))
   if(!res.ok) throw new Error((data as any).error || 'Printer bridge error')

@@ -480,8 +480,10 @@ def seed():
         "app_enabled": "true",
         "shop_open": "true",
         "vat_enabled": "true",
+        "vat_inclusive": "true",
+        "cashier_card_size": "auto",
         "allow_discounts": "true",
-        "allow_coupons": "true",
+        "allow_coupons": "false",
         "allow_refunds": "true",
         "allow_voids": "true",
         "allow_hold_orders": "true",
@@ -674,6 +676,8 @@ class SettingsIn(BaseModel):
     app_enabled: bool = True
     shop_open: bool = True
     vat_enabled: bool = True
+    vat_inclusive: bool = True
+    cashier_card_size: str = "auto"
     allow_discounts: bool = True
     allow_coupons: bool = True
     allow_refunds: bool = True
@@ -1479,10 +1483,19 @@ def add_order(x: OrderIn):
             coupon_discount = c.value if c.discount_type == "fixed" else subtotal * (c.value / 100)
             discount = min(subtotal, discount + coupon_discount)
 
-    taxable = subtotal - discount
+    gross_after_discount = subtotal - discount
     vat_percent = float(get_setting(db, "vat_percent", "5")) if flag(db, "vat_enabled", True) else 0
-    vat = round(taxable * vat_percent / 100, 2)
-    total = round(taxable + vat, 2)
+    vat_inclusive = flag(db, "vat_inclusive", True)
+
+    if vat_percent > 0 and vat_inclusive:
+        # Menu price is the final VAT-inclusive selling price.
+        total = round(gross_after_discount, 2)
+        vat = round(total - (total / (1 + vat_percent / 100)), 2)
+        taxable = round(total - vat, 2)
+    else:
+        taxable = round(gross_after_discount, 2)
+        vat = round(taxable * vat_percent / 100, 2)
+        total = round(taxable + vat, 2)
 
     cash_paid = float(x.cash_paid or 0)
     card_paid = float(x.card_paid or 0)
@@ -1740,12 +1753,12 @@ def settings():
         "kitchen_sound", "require_shift", "currency",
         "payment_terminal_provider", "payment_terminal_enabled",
         "customer_display_enabled", "offline_queue_enabled", "receipt_logo",
-        "app_enabled", "shop_open", "vat_enabled", "allow_discounts", "allow_coupons", "allow_refunds", "allow_voids", "allow_hold_orders", "allow_split_payment", "allow_delivery", "allow_dinein", "allow_takeaway", "allow_customer_display", "allow_waiter_payment", "kitchen_can_cancel", "manager_pin_required_for_kitchen_cancel", "show_prices_in_kitchen", "show_shift_to_waiter", "show_shift_to_kitchen", "auto_cash_drawer"
+        "app_enabled", "shop_open", "vat_enabled", "vat_inclusive", "allow_discounts", "allow_coupons", "allow_refunds", "allow_voids", "allow_hold_orders", "allow_split_payment", "allow_delivery", "allow_dinein", "allow_takeaway", "allow_customer_display", "allow_waiter_payment", "kitchen_can_cancel", "manager_pin_required_for_kitchen_cancel", "show_prices_in_kitchen", "show_shift_to_waiter", "show_shift_to_kitchen", "auto_cash_drawer"
     ]
     d = {k: get_setting(db, k, "") for k in keys}
     d["vat_percent"] = float(d["vat_percent"] or 5)
     d["printer_port"] = int(d["printer_port"] or 9100)
-    for k in ["auto_print", "kitchen_sound", "require_shift", "payment_terminal_enabled", "customer_display_enabled", "offline_queue_enabled", "app_enabled", "shop_open", "vat_enabled", "allow_discounts", "allow_coupons", "allow_refunds", "allow_voids", "allow_hold_orders", "allow_split_payment", "allow_delivery", "allow_dinein", "allow_takeaway", "allow_customer_display", "allow_waiter_payment", "kitchen_can_cancel", "manager_pin_required_for_kitchen_cancel", "show_prices_in_kitchen", "show_shift_to_waiter", "show_shift_to_kitchen", "auto_cash_drawer"]:
+    for k in ["auto_print", "kitchen_sound", "require_shift", "payment_terminal_enabled", "customer_display_enabled", "offline_queue_enabled", "app_enabled", "shop_open", "vat_enabled", "vat_inclusive", "allow_discounts", "allow_coupons", "allow_refunds", "allow_voids", "allow_hold_orders", "allow_split_payment", "allow_delivery", "allow_dinein", "allow_takeaway", "allow_customer_display", "allow_waiter_payment", "kitchen_can_cancel", "manager_pin_required_for_kitchen_cancel", "show_prices_in_kitchen", "show_shift_to_waiter", "show_shift_to_kitchen", "auto_cash_drawer"]:
         d[k] = str(d[k]).lower() == "true"
     db.close()
     return d
@@ -1948,6 +1961,53 @@ def report_between(db, start: date, end: date):
         "vat": vat, "discounts": discounts, "refunds": refunds,
         "expenses": expenses, "net_after_expenses": round(sales - expenses, 2)
     }
+
+
+
+@app.get("/reports/uae-vat")
+def uae_vat_report(start: Optional[str] = None, end: Optional[str] = None):
+    db = db_session()
+    try:
+        s = datetime.strptime(start, "%Y-%m-%d").date() if start else datetime.utcnow().date().replace(day=1)
+        e = datetime.strptime(end, "%Y-%m-%d").date() if end else datetime.utcnow().date()
+    except:
+        db.close()
+        raise HTTPException(400, "Dates must be YYYY-MM-DD")
+
+    rows = [
+        o for o in db.query(Order).all()
+        if s <= o.created_at.date() <= e and o.status not in {"cancelled", "held"}
+    ]
+    gross_sales = round(sum(max(0, o.total - o.refund_amount) for o in rows), 2)
+
+    # Output VAT from each stored order. Stored VAT is already extracted correctly
+    # from VAT-inclusive prices when vat_inclusive is enabled.
+    output_vat = round(sum(max(0, o.vat) for o in rows), 2)
+    sales_ex_vat = round(gross_sales - output_vat, 2)
+    refunds = round(sum(o.refund_amount for o in rows), 2)
+
+    # Expenses currently store gross expense amounts only. Input VAT can only be
+    # reclaimed when supported by valid tax invoices, so this report does not
+    # invent recoverable input VAT.
+    expense_total = round(sum(
+        x.amount for x in db.query(Expense).all()
+        if s <= x.created_at.date() <= e
+    ), 2)
+
+    out = {
+        "period_start": s.isoformat(),
+        "period_end": e.isoformat(),
+        "standard_rated_sales_including_vat": gross_sales,
+        "standard_rated_sales_excluding_vat": sales_ex_vat,
+        "output_vat_collected": output_vat,
+        "refunds": refunds,
+        "expenses_total": expense_total,
+        "recoverable_input_vat": None,
+        "net_vat_before_input_tax": output_vat,
+        "note": "Recoverable input VAT must be entered from valid supplier tax invoices; it is not auto-assumed from expenses."
+    }
+    db.close()
+    return out
 
 
 @app.get("/reports/today")

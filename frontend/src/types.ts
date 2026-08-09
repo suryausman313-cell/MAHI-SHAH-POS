@@ -99,4 +99,5 @@ export type Settings = {
   show_prices_in_kitchen?:boolean
   show_shift_to_waiter?:boolean
   show_shift_to_kitchen?:boolean
+  auto_cash_drawer?:boolean
 }

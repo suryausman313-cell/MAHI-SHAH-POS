@@ -71,7 +71,9 @@ export async function sendToIpPrinter(order:any, settings:Settings){
   if(Number(order.discount || 0) > 0){
     lines.push(`Discount AED ${Number(order.discount).toFixed(2)}`)
   }
-  lines.push(`VAT AED ${Number(order.vat || 0).toFixed(2)}`)
+  if(settings.vat_enabled !== false && Number(order.vat || 0) > 0){
+    lines.push(`VAT AED ${Number(order.vat || 0).toFixed(2)}`)
+  }
   lines.push(`TOTAL AED ${Number(order.total || 0).toFixed(2)}`)
   lines.push(`Payment: ${String(order.payment_method || '').toUpperCase()}`)
   lines.push('--------------------------------')
@@ -115,4 +117,31 @@ export function orderTime(value:string){
   }catch{
     return ''
   }
+}
+
+
+export async function openCashDrawer(settings:Settings){
+  if(!settings?.printer_ip) throw new Error('Printer IP is empty')
+  const payload={
+    ip:settings.printer_ip,
+    port:Number(settings.printer_port||9100)
+  }
+
+  const nativePrinter=(window as any).AndroidPrinter
+  if(nativePrinter && typeof nativePrinter.openDrawer==='function'){
+    const result=nativePrinter.openDrawer(JSON.stringify(payload))
+    let parsed:any=result
+    try{parsed=JSON.parse(result)}catch{}
+    if(parsed&&parsed.ok===false)throw new Error(parsed.error||'Cash drawer error')
+    return parsed||{ok:true}
+  }
+
+  const res=await fetch(PRINT_BRIDGE+'/drawer',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload)
+  })
+  const data=await res.json().catch(()=>({}))
+  if(!res.ok)throw new Error((data as any).error||'Cash drawer bridge error')
+  return data
 }

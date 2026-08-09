@@ -83,6 +83,8 @@ export type Settings = {
   app_enabled?:boolean
   shop_open?:boolean
   vat_enabled?:boolean
+  vat_inclusive?:boolean
+  cashier_card_size?:string
   allow_discounts?:boolean
   allow_coupons?:boolean
   allow_refunds?:boolean

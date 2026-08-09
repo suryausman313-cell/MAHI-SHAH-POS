@@ -72,7 +72,11 @@ export async function sendToIpPrinter(order:any, settings:Settings){
     lines.push(`Discount AED ${Number(order.discount).toFixed(2)}`)
   }
   if(settings.vat_enabled !== false && Number(order.vat || 0) > 0){
-    lines.push(`VAT AED ${Number(order.vat || 0).toFixed(2)}`)
+    if(settings.vat_inclusive !== false){
+      lines.push('VAT Included')
+    }else{
+      lines.push(`VAT AED ${Number(order.vat || 0).toFixed(2)}`)
+    }
   }
   lines.push(`TOTAL AED ${Number(order.total || 0).toFixed(2)}`)
   lines.push(`Payment: ${String(order.payment_method || '').toUpperCase()}`)

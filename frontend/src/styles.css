@@ -243,3 +243,116 @@ button{cursor:pointer}
 .drawer-bottom-actions{border-bottom:0!important;margin-top:10px}.logout-drawer{background:#fff1f1!important;color:#d34d4d!important;text-align:center!important}
 .cashier-clean-workspace .product-photo img{width:100%;height:100%;object-fit:cover}
 @media(max-width:900px){.cashier-clean-workspace{grid-template-columns:1fr}.cashier-clean-workspace .order-panel{position:relative;height:auto}.cashier-tools-panel{grid-template-columns:1fr}.cashier-clean-workspace .pos-toolbar{grid-template-columns:1fr auto}.cashier-clean-workspace .segment{grid-column:1/-1}}
+
+.vat-included-line{color:#7d8999;font-size:10px;font-weight:750}.vat-included-line span:after{content:"";margin-left:3px}
+.uae-vat-card{margin-bottom:14px}.vat-report-controls{display:flex;gap:7px;margin:8px 0 12px}.vat-report-controls input{height:37px;border:1px solid var(--line);border-radius:8px;padding:0 8px}
+.vat-report-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.vat-report-grid>div{background:#f7f9fc;border-radius:10px;padding:12px}.vat-report-grid span,.vat-report-grid b{display:block}.vat-report-grid span{font-size:8px;color:#8995a5}.vat-report-grid b{font-size:13px;margin-top:3px}
+@media(max-width:700px){.vat-report-grid{grid-template-columns:1fr 1fr}.vat-report-controls{flex-wrap:wrap}}
+
+/* CASHIER ORDER PANEL + RESPONSIVE MENU FINAL */
+.cashier-clean-workspace{
+  grid-template-columns:minmax(0,1fr) minmax(320px,360px);
+  height:100vh;
+  overflow:hidden;
+}
+.cashier-clean-workspace .product-area{
+  min-width:0;
+  height:100vh;
+  overflow:auto;
+  padding-bottom:24px;
+}
+.cashier-clean-workspace .order-panel{
+  height:100vh;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+  background:#fff;
+  border-left:1px solid var(--line);
+}
+.cashier-clean-workspace .order-panel-head{
+  flex:0 0 auto;
+}
+.cashier-clean-workspace .order-items{
+  flex:1 1 auto;
+  min-height:170px;
+  overflow:auto;
+  padding-bottom:10px;
+}
+.cashier-clean-workspace .order-summary{
+  flex:0 0 auto;
+  background:#fff;
+  border-top:1px solid #edf1f5;
+  max-height:58vh;
+  overflow:auto;
+  padding-bottom:10px;
+}
+.cashier-clean-workspace .customer-row,
+.cashier-clean-workspace .plain-input{
+  margin-top:7px;
+}
+.cashier-clean-workspace .product-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(145px,1fr));
+  gap:12px;
+  align-items:start;
+}
+.cashier-clean-workspace .product-card{
+  width:100%;
+  min-width:0;
+  height:auto;
+}
+.cashier-clean-workspace .product-photo{
+  height:92px;
+}
+.cashier-clean-workspace.card-compact .product-grid{
+  grid-template-columns:repeat(auto-fill,minmax(120px,1fr));
+  gap:9px;
+}
+.cashier-clean-workspace.card-compact .product-photo{height:72px}
+.cashier-clean-workspace.card-compact .product-card{font-size:90%}
+.cashier-clean-workspace.card-normal .product-grid{
+  grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+}
+.cashier-clean-workspace.card-large .product-grid{
+  grid-template-columns:repeat(auto-fill,minmax(190px,1fr));
+}
+.cashier-clean-workspace.card-large .product-photo{height:120px}
+.cashier-clean-workspace.card-auto .product-grid{
+  grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+}
+.control-card select{
+  min-width:105px;
+  height:34px;
+  border:1px solid var(--line);
+  border-radius:8px;
+  padding:0 7px;
+  background:#fff;
+}
+@media(max-width:1100px){
+  .cashier-clean-workspace{
+    grid-template-columns:minmax(0,1fr) 330px;
+  }
+  .cashier-clean-workspace.card-auto .product-grid{
+    grid-template-columns:repeat(auto-fit,minmax(125px,1fr));
+  }
+}
+@media(max-width:850px){
+  .cashier-clean-workspace{
+    display:block;
+    height:auto;
+    overflow:visible;
+  }
+  .cashier-clean-workspace .product-area,
+  .cashier-clean-workspace .order-panel{
+    height:auto;
+    overflow:visible;
+  }
+  .cashier-clean-workspace .order-panel{
+    position:relative;
+    border-left:0;
+    border-top:1px solid var(--line);
+  }
+  .cashier-clean-workspace .order-items{
+    max-height:300px;
+  }
+}

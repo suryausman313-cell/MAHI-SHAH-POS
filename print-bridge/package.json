@@ -1,0 +1,8 @@
+{
+  "name": "mahi-pos-printer-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  }
+}

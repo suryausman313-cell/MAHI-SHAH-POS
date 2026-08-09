@@ -259,6 +259,13 @@ class OrderItem(Base):
 
 
 
+
+class ProductMedia(Base):
+    __tablename__ = "product_media"
+    id = Column(Integer, primary_key=True)
+    menu_item_id = Column(Integer, ForeignKey("menu_items.id"), unique=True)
+    image_data = Column(Text, default="")
+
 class SizeOption(Base):
     __tablename__ = "size_options"
     id = Column(Integer, primary_key=True)
@@ -404,6 +411,10 @@ def stock_apply_for_order(db, order, direction=-1):
                 ))
 
 
+
+def flag(db, key: str, default=True):
+    return str(get_setting(db, key, "true" if default else "false")).lower() == "true"
+
 def current_open_shift(db):
     return db.query(Shift).filter(Shift.status == "open").order_by(Shift.id.desc()).first()
 
@@ -466,6 +477,25 @@ def seed():
         "customer_display_enabled": "true",
         "offline_queue_enabled": "true",
         "receipt_logo": "",
+        "app_enabled": "true",
+        "shop_open": "true",
+        "vat_enabled": "true",
+        "allow_discounts": "true",
+        "allow_coupons": "true",
+        "allow_refunds": "true",
+        "allow_voids": "true",
+        "allow_hold_orders": "true",
+        "allow_split_payment": "true",
+        "allow_delivery": "true",
+        "allow_dinein": "true",
+        "allow_takeaway": "true",
+        "allow_customer_display": "true",
+        "allow_waiter_payment": "false",
+        "kitchen_can_cancel": "true",
+        "manager_pin_required_for_kitchen_cancel": "true",
+        "show_prices_in_kitchen": "false",
+        "show_shift_to_waiter": "false",
+        "show_shift_to_kitchen": "false",
     }
     for k, v in defaults.items():
         if not db.query(Setting).filter(Setting.key == k).first():
@@ -640,10 +670,40 @@ class SettingsIn(BaseModel):
     currency: str = "AED"
     payment_terminal_provider: str = ""
     payment_terminal_enabled: bool = False
+    app_enabled: bool = True
+    shop_open: bool = True
+    vat_enabled: bool = True
+    allow_discounts: bool = True
+    allow_coupons: bool = True
+    allow_refunds: bool = True
+    allow_voids: bool = True
+    allow_hold_orders: bool = True
+    allow_split_payment: bool = True
+    allow_delivery: bool = True
+    allow_dinein: bool = True
+    allow_takeaway: bool = True
+    allow_customer_display: bool = True
+    allow_waiter_payment: bool = False
+    kitchen_can_cancel: bool = True
+    manager_pin_required_for_kitchen_cancel: bool = True
+    show_prices_in_kitchen: bool = False
+    show_shift_to_waiter: bool = False
+    show_shift_to_kitchen: bool = False
 
 
 # -------------------- APP --------------------
 
+
+
+class ProductImageIn(BaseModel):
+    image_data: str = ""
+
+class StaffPermissionsIn(BaseModel):
+    permissions: List[str] = []
+
+class KitchenCancelIn(BaseModel):
+    manager_pin: str
+    reason: str = ""
 
 class SizeIn(BaseModel):
     menu_item_id: int
@@ -765,6 +825,20 @@ def add_staff(x: StaffIn):
     return out
 
 
+
+@app.put("/staff/{staff_id}/permissions")
+def update_staff_permissions(staff_id: int, x: StaffPermissionsIn):
+    db = db_session()
+    s = db.query(Staff).filter(Staff.id == staff_id).first()
+    if not s:
+        db.close()
+        raise HTTPException(404, "Staff not found")
+    s.permissions = json.dumps(x.permissions)
+    log_action(db, "staff_permissions_change", "staff", staff_id, details=",".join(x.permissions))
+    db.commit()
+    db.close()
+    return {"ok": True}
+
 @app.post("/attendance/{staff_id}/clock-in")
 def clock_in(staff_id: int):
     db = db_session()
@@ -809,7 +883,9 @@ def menu():
         out.append({
             "id": x.id, "name": x.name, "category": x.category, "price": x.price,
             "barcode": x.barcode, "sku": x.sku, "active": x.active,
-            "modifiers": [{"id": m.id, "name": m.name, "price": m.price} for m in mods]
+            "modifiers": [{"id": m.id, "name": m.name, "price": m.price} for m in mods],
+            "image": (db.query(ProductMedia).filter(ProductMedia.menu_item_id == x.id).first().image_data
+                      if db.query(ProductMedia).filter(ProductMedia.menu_item_id == x.id).first() else "")
         })
     db.close()
     return out
@@ -832,7 +908,9 @@ def admin_menu():
     db = db_session()
     rows = db.query(MenuItem).order_by(MenuItem.category, MenuItem.name).all()
     out = [{"id": x.id, "name": x.name, "category": x.category, "price": x.price,
-            "barcode": x.barcode, "sku": x.sku, "active": x.active} for x in rows]
+            "barcode": x.barcode, "sku": x.sku, "active": x.active,
+            "image": (db.query(ProductMedia).filter(ProductMedia.menu_item_id == x.id).first().image_data
+                      if db.query(ProductMedia).filter(ProductMedia.menu_item_id == x.id).first() else "")} for x in rows]
     db.close()
     return out
 
@@ -875,6 +953,34 @@ def delete_menu(item_id: int):
     r.active = False
     log_action(db, "disable_menu_item", "menu", item_id, details=r.name)
     db.commit()
+    db.close()
+    return {"ok": True}
+
+
+@app.put("/admin/menu/{item_id}/image")
+def save_menu_image(item_id: int, x: ProductImageIn):
+    db = db_session()
+    item = db.query(MenuItem).filter(MenuItem.id == item_id).first()
+    if not item:
+        db.close()
+        raise HTTPException(404, "Item not found")
+    media = db.query(ProductMedia).filter(ProductMedia.menu_item_id == item_id).first()
+    if media:
+        media.image_data = x.image_data
+    else:
+        db.add(ProductMedia(menu_item_id=item_id, image_data=x.image_data))
+    log_action(db, "menu_image_change", "menu", item_id)
+    db.commit()
+    db.close()
+    return {"ok": True}
+
+@app.delete("/admin/menu/{item_id}/image")
+def delete_menu_image(item_id: int):
+    db = db_session()
+    media = db.query(ProductMedia).filter(ProductMedia.menu_item_id == item_id).first()
+    if media:
+        db.delete(media)
+        db.commit()
     db.close()
     return {"ok": True}
 
@@ -1311,6 +1417,34 @@ def add_coupon(x: CouponIn):
 @app.post("/orders")
 def add_order(x: OrderIn):
     db = db_session()
+    if not flag(db, "app_enabled", True):
+        db.close()
+        raise HTTPException(403, "POS app is disabled by Admin")
+    if not flag(db, "shop_open", True):
+        db.close()
+        raise HTTPException(403, "Shop is closed by Admin")
+    if x.order_type == "delivery" and not flag(db, "allow_delivery", True):
+        db.close()
+        raise HTTPException(403, "Delivery is disabled")
+    if x.order_type == "dinein" and not flag(db, "allow_dinein", True):
+        db.close()
+        raise HTTPException(403, "Dine-in is disabled")
+    if x.order_type == "takeaway" and not flag(db, "allow_takeaway", True):
+        db.close()
+        raise HTTPException(403, "Takeaway is disabled")
+    if x.discount > 0 and not flag(db, "allow_discounts", True):
+        db.close()
+        raise HTTPException(403, "Discounts are disabled")
+    if x.coupon_code and not flag(db, "allow_coupons", True):
+        db.close()
+        raise HTTPException(403, "Coupons are disabled")
+    if x.hold and not flag(db, "allow_hold_orders", True):
+        db.close()
+        raise HTTPException(403, "Hold orders are disabled")
+    if x.payment_method == "split" and not flag(db, "allow_split_payment", True):
+        db.close()
+        raise HTTPException(403, "Split payment is disabled")
+
     require_shift = get_setting(db, "require_shift", "true").lower() == "true"
     shift = db.query(Shift).filter(Shift.id == x.shift_id, Shift.status == "open").first() if x.shift_id else current_open_shift(db)
     if require_shift and not shift:
@@ -1344,7 +1478,7 @@ def add_order(x: OrderIn):
             discount = min(subtotal, discount + coupon_discount)
 
     taxable = subtotal - discount
-    vat_percent = float(get_setting(db, "vat_percent", "5"))
+    vat_percent = float(get_setting(db, "vat_percent", "5")) if flag(db, "vat_enabled", True) else 0
     vat = round(taxable * vat_percent / 100, 2)
     total = round(taxable + vat, 2)
 
@@ -1467,6 +1601,33 @@ def set_status(order_id: int, status: str):
     return {"ok": True}
 
 
+
+@app.post("/orders/{order_id}/kitchen-cancel")
+def kitchen_cancel(order_id: int, x: KitchenCancelIn):
+    db = db_session()
+    if not flag(db, "kitchen_can_cancel", True):
+        db.close()
+        raise HTTPException(403, "Kitchen cancellation is disabled")
+    manager = manager_check(db, x.manager_pin)
+    o = db.query(Order).filter(Order.id == order_id).first()
+    if not o:
+        db.close()
+        raise HTTPException(404, "Order not found")
+    if o.status in {"completed", "cancelled", "refunded"}:
+        db.close()
+        raise HTTPException(400, "Order cannot be cancelled")
+    stock_apply_for_order(db, o, direction=1)
+    o.status = "cancelled"
+    if o.table_id:
+        t = db.query(Table).filter(Table.id == o.table_id).first()
+        if t: t.status = "available"
+    log_action(db, "kitchen_cancel_order", "order", order_id, actor=manager.id, details=x.reason)
+    shift = db.query(Shift).filter(Shift.id == o.shift_id).first() if o.shift_id else None
+    recalc_shift(db, shift)
+    db.commit()
+    db.close()
+    return {"ok": True}
+
 @app.post("/orders/{order_id}/split-payment")
 def split_payment(order_id: int, x: SplitPaymentIn):
     db = db_session()
@@ -1490,6 +1651,9 @@ def split_payment(order_id: int, x: SplitPaymentIn):
 @app.post("/orders/{order_id}/void")
 def void_order(order_id: int, x: VoidIn):
     db = db_session()
+    if not flag(db, "allow_voids", True):
+        db.close()
+        raise HTTPException(403, "Void is disabled by Admin")
     manager = manager_check(db, x.manager_pin)
     o = db.query(Order).filter(Order.id == order_id).first()
     if not o:
@@ -1512,6 +1676,9 @@ def void_order(order_id: int, x: VoidIn):
 @app.post("/orders/{order_id}/refund")
 def refund_order(order_id: int, x: RefundIn):
     db = db_session()
+    if not flag(db, "allow_refunds", True):
+        db.close()
+        raise HTTPException(403, "Refunds are disabled by Admin")
     manager = manager_check(db, x.manager_pin)
     o = db.query(Order).filter(Order.id == order_id).first()
     if not o:
@@ -1570,12 +1737,13 @@ def settings():
         "receipt_footer", "printer_ip", "printer_port", "auto_print",
         "kitchen_sound", "require_shift", "currency",
         "payment_terminal_provider", "payment_terminal_enabled",
-        "customer_display_enabled", "offline_queue_enabled", "receipt_logo"
+        "customer_display_enabled", "offline_queue_enabled", "receipt_logo",
+        "app_enabled", "shop_open", "vat_enabled", "allow_discounts", "allow_coupons", "allow_refunds", "allow_voids", "allow_hold_orders", "allow_split_payment", "allow_delivery", "allow_dinein", "allow_takeaway", "allow_customer_display", "allow_waiter_payment", "kitchen_can_cancel", "manager_pin_required_for_kitchen_cancel", "show_prices_in_kitchen", "show_shift_to_waiter", "show_shift_to_kitchen"
     ]
     d = {k: get_setting(db, k, "") for k in keys}
     d["vat_percent"] = float(d["vat_percent"] or 5)
     d["printer_port"] = int(d["printer_port"] or 9100)
-    for k in ["auto_print", "kitchen_sound", "require_shift", "payment_terminal_enabled", "customer_display_enabled", "offline_queue_enabled"]:
+    for k in ["auto_print", "kitchen_sound", "require_shift", "payment_terminal_enabled", "customer_display_enabled", "offline_queue_enabled", "app_enabled", "shop_open", "vat_enabled", "allow_discounts", "allow_coupons", "allow_refunds", "allow_voids", "allow_hold_orders", "allow_split_payment", "allow_delivery", "allow_dinein", "allow_takeaway", "allow_customer_display", "allow_waiter_payment", "kitchen_can_cancel", "manager_pin_required_for_kitchen_cancel", "show_prices_in_kitchen", "show_shift_to_waiter", "show_shift_to_kitchen"]:
         d[k] = str(d[k]).lower() == "true"
     db.close()
     return d

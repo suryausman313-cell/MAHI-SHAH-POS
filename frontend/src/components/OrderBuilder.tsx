@@ -503,7 +503,7 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
                 :null,
             shift_id:shift?.id||null,
             discount,
-            coupon_code:null,
+            coupon_code:coupon || '',
             delivery_address:
               type==='delivery'
                 ?deliveryAddress

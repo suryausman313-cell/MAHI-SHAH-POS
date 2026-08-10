@@ -1,100 +1,128 @@
-const http = require('http');
 const net = require('net');
 
-const HOST = '127.0.0.1';
-const PORT = 18181;
+const BACKEND_URL = (process.env.MAHI_BACKEND_URL || 'https://mahi-shah-pos-api.onrender.com').replace(/\/+$/, '');
+const POLL_MS = Number(process.env.MAHI_PRINT_POLL_MS || 2000);
 
-function cors(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+function sleep(ms){
+  return new Promise(resolve=>setTimeout(resolve,ms));
 }
 
-function json(res, status, body) {
-  cors(res);
-  res.writeHead(status, {'Content-Type':'application/json'});
-  res.end(JSON.stringify(body));
-}
+function escpos(lines, cut=true){
+  const chunks = [];
+  chunks.push(Buffer.from([0x1b,0x40])); // initialize
 
-function escposBuffer(lines, cut=true) {
-  const init = Buffer.from([0x1b, 0x40]);
-  const center = Buffer.from([0x1b, 0x61, 0x01]);
-  const left = Buffer.from([0x1b, 0x61, 0x00]);
-  const textParts = [];
-  lines.forEach((line, idx) => {
-    if (idx === 0) textParts.push(center);
-    if (idx === 1) textParts.push(left);
-    textParts.push(Buffer.from(String(line) + '\n', 'utf8'));
-  });
-  textParts.push(Buffer.from('\n\n\n', 'utf8'));
-  if (cut) textParts.push(Buffer.from([0x1d, 0x56, 0x00]));
-  return Buffer.concat([init, ...textParts]);
-}
-
-function sendRaw(ip, port, buffer) {
-  return new Promise((resolve, reject) => {
-    const socket = net.createConnection({host: ip, port: Number(port), timeout: 5000}, () => {
-      socket.write(buffer, () => socket.end());
-    });
-    socket.on('close', hadError => hadError ? reject(new Error('Printer connection closed with error')) : resolve());
-    socket.on('timeout', () => { socket.destroy(); reject(new Error('Printer connection timeout')); });
-    socket.on('error', reject);
-  });
-}
-
-const server = http.createServer((req, res) => {
-  if (req.method === 'OPTIONS') {
-    cors(res);
-    res.writeHead(204);
-    return res.end();
+  for(const line of (lines || [])){
+    chunks.push(Buffer.from(String(line) + '\n', 'utf8'));
   }
 
-  if (req.method === 'GET' && req.url === '/health') {
-    return json(res, 200, {ok:true, service:'MAHI POS Printer Bridge'});
+  chunks.push(Buffer.from('\n\n', 'utf8'));
+
+  if(cut){
+    chunks.push(Buffer.from([0x1d,0x56,0x00]));
   }
 
+  return Buffer.concat(chunks);
+}
 
-  if (req.method === 'POST' && req.url === '/drawer') {
-    let body = '';
-    req.on('data', chunk => body += chunk);
-    req.on('end', async () => {
-      try {
-        const data = JSON.parse(body || '{}');
-        if (!data.ip) return json(res, 400, {error:'Printer IP is required'});
-        const port = Number(data.port || 9100);
-        const pulse = Buffer.from([0x1b, 0x70, 0x00, 0x19, 0xfa]);
-        await sendRaw(data.ip, port, pulse);
-        return json(res, 200, {ok:true, ip:data.ip, port});
-      } catch (e) {
-        return json(res, 500, {error:e.message || String(e)});
+function sendRaw(ip, port, bytes){
+  return new Promise((resolve,reject)=>{
+    const socket = net.createConnection(
+      {host:ip, port:Number(port||9100), timeout:7000},
+      ()=>{
+        socket.write(bytes, err=>{
+          if(err){
+            socket.destroy();
+            reject(err);
+            return;
+          }
+          socket.end();
+        });
       }
+    );
+
+    socket.on('close',hadError=>{
+      if(!hadError) resolve();
     });
-    return;
+
+    socket.on('timeout',()=>{
+      socket.destroy();
+      reject(new Error('Printer connection timeout'));
+    });
+
+    socket.on('error',reject);
+  });
+}
+
+async function jsonFetch(path, options={}){
+  const res = await fetch(BACKEND_URL + path, {
+    ...options,
+    headers:{
+      'Content-Type':'application/json',
+      ...(options.headers||{})
+    }
+  });
+
+  const data = await res.json().catch(()=>({}));
+
+  if(!res.ok){
+    throw new Error(data.detail || data.error || `HTTP ${res.status}`);
   }
 
-  if (req.method === 'POST' && req.url === '/print') {
-    let body = '';
-    req.on('data', chunk => body += chunk);
-    req.on('end', async () => {
-      try {
-        const data = JSON.parse(body || '{}');
-        if (!data.ip) return json(res, 400, {error:'Printer IP is required'});
-        const port = Number(data.port || 9100);
-        const lines = Array.isArray(data.lines) ? data.lines : [];
-        const buffer = escposBuffer(lines, data.cut !== false);
-        await sendRaw(data.ip, port, buffer);
-        return json(res, 200, {ok:true, ip:data.ip, port});
-      } catch (e) {
-        return json(res, 500, {error: e.message || String(e)});
-      }
-    });
-    return;
+  return data;
+}
+
+async function processOne(){
+  const data = await jsonFetch('/print-queue/next');
+  const job = data.job;
+
+  if(!job){
+    return false;
   }
 
-  return json(res, 404, {error:'Not found'});
-});
+  try{
+    if(!job.ip){
+      throw new Error('Printer IP missing in print job');
+    }
 
-server.listen(PORT, HOST, () => {
-  console.log(`MAHI POS Printer Bridge running on http://${HOST}:${PORT}`);
-  console.log('Keep this window open while using POS.');
+    console.log(`[PRINT] Job #${job.id} -> ${job.ip}:${job.port || 9100}`);
+    await sendRaw(job.ip, job.port || 9100, escpos(job.lines, job.cut !== false));
+    await jsonFetch(`/print-queue/${job.id}/done`, {method:'POST'});
+    console.log(`[DONE] Job #${job.id}`);
+  }catch(err){
+    const message = err && err.message ? err.message : String(err);
+    console.error(`[FAIL] Job #${job.id}: ${message}`);
+
+    try{
+      await jsonFetch(`/print-queue/${job.id}/fail`, {
+        method:'POST',
+        body:JSON.stringify({error:message})
+      });
+    }catch(reportErr){
+      console.error('[FAIL REPORT]', reportErr.message || reportErr);
+    }
+  }
+
+  return true;
+}
+
+async function main(){
+  console.log('MAHI Central Print Bridge');
+  console.log('Backend:', BACKEND_URL);
+  console.log('Polling every', POLL_MS, 'ms');
+  console.log('Keep this window open while the shop is operating.');
+
+  while(true){
+    try{
+      const worked = await processOne();
+      if(!worked) await sleep(POLL_MS);
+    }catch(err){
+      console.error('[QUEUE]', err.message || err);
+      await sleep(Math.max(POLL_MS, 5000));
+    }
+  }
+}
+
+main().catch(err=>{
+  console.error(err);
+  process.exit(1);
 });

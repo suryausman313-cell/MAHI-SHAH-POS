@@ -1346,18 +1346,84 @@ def shift_close(shift_id: int, x: ShiftCloseIn):
     if not s:
         db.close()
         raise HTTPException(404, "Open shift not found")
+
     recalc_shift(db, s)
+
+    orders = db.query(Order).filter(
+        Order.shift_id == s.id,
+        Order.status.notin_(["cancelled", "held"])
+    ).all()
+
+    movements = db.query(CashMovement).filter(CashMovement.shift_id == s.id).all()
+
+    # Expenses entered while this shift was open.
+    shift_end = datetime.utcnow()
+    expenses = db.query(Expense).filter(
+        Expense.created_at >= s.opened_at,
+        Expense.created_at <= shift_end
+    ).all()
+
+    gross_sales = round(sum(o.total for o in orders), 2)
+    total_discounts = round(sum(o.discount for o in orders), 2)
+    total_refunds = round(sum(o.refund_amount for o in orders), 2)
+    cash_refunds = round(sum(
+        o.refund_amount for o in orders if o.payment_method == "cash"
+    ), 2)
+    card_refunds = round(sum(
+        o.refund_amount for o in orders if o.payment_method == "card"
+    ), 2)
+    cash_payments = round(sum(o.cash_paid for o in orders), 2)
+    card_payments = round(sum(o.card_paid for o in orders), 2)
+    vat_total = round(sum(o.vat for o in orders), 2)
+    expenses_total = round(sum(e.amount for e in expenses), 2)
+
+    cash_in = round(sum(m.amount for m in movements if m.movement_type == "in"), 2)
+    cash_out = round(sum(m.amount for m in movements if m.movement_type == "out"), 2)
+
     s.actual_cash = x.actual_cash
     s.difference = round(x.actual_cash - s.expected_cash, 2)
     s.status = "closed"
-    s.closed_at = datetime.utcnow()
+    s.closed_at = shift_end
     s.notes = x.notes
-    log_action(db, "close_shift", "shift", s.id, actor=manager.id, details=f"Difference {s.difference}")
+
+    opener = db.query(Staff).filter(Staff.id == s.staff_id).first() if s.staff_id else None
+
+    log_action(
+        db, "close_shift", "shift", s.id,
+        actor=manager.id,
+        details=f"Difference {s.difference}"
+    )
     db.commit()
+
     out = {
-        "id": s.id, "expected_cash": s.expected_cash,
-        "actual_cash": s.actual_cash, "difference": s.difference,
-        "cash_sales": s.cash_sales, "card_sales": s.card_sales
+        "id": s.id,
+        "staff_id": s.staff_id,
+        "staff_name": opener.name if opener else "Unknown",
+        "opened_at": s.opened_at.isoformat(),
+        "closed_at": s.closed_at.isoformat(),
+
+        "starting_cash": round(s.opening_cash, 2),
+        "cash_payments": cash_payments,
+        "cash_refunds": cash_refunds,
+        "card_payments": card_payments,
+        "card_refunds": card_refunds,
+        "cash_in": cash_in,
+        "cash_out": cash_out,
+
+        "gross_sales": gross_sales,
+        "cash_sales": round(s.cash_sales, 2),
+        "card_sales": round(s.card_sales, 2),
+        "discounts": total_discounts,
+        "refunds": total_refunds,
+        "vat": vat_total,
+        "expenses": expenses_total,
+
+        "expected_cash": round(s.expected_cash, 2),
+        "actual_cash": round(s.actual_cash, 2),
+        "difference": round(s.difference, 2),
+        "order_count": len(orders),
+
+        "closed_by": manager.name
     }
     db.close()
     return out

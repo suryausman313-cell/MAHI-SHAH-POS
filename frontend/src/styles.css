@@ -483,3 +483,30 @@ button{cursor:pointer}
 .size-options{display:grid;gap:8px;padding-top:12px}.size-options button{border:1px solid #dfe5ed;background:#fff;border-radius:12px;padding:14px;display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:800}.size-options button:hover{border-color:#8db1f6;background:#f3f7ff;color:#2f6fed}.size-options button b{font-size:14px}
 .admin-size-list{grid-column:1/-1;display:flex;gap:5px;flex-wrap:wrap;padding-top:6px}.admin-size-list button{border:0;background:#eef4ff;color:#2f6fed;border-radius:999px;padding:5px 8px;font-size:8px;font-weight:800}.size-manage-btn{background:#eef8f3!important;color:#16875f!important}
 @media(max-width:950px){.cashier-clean-workspace{grid-template-columns:minmax(0,1fr) 360px!important}.cashier-clean-workspace .order-panel{width:360px!important;min-width:360px!important;max-width:360px!important}}
+
+/* HOLD / PAYMENT FLOW */
+.hold-kitchen-button{
+  width:100%;
+  margin:8px 0;
+  min-height:44px;
+  font-weight:900;
+}
+
+.held-order-actions{
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:5px;
+  align-items:center;
+}
+
+.held-order-actions>button{
+  margin:0!important;
+}
+
+.held-cancel-btn{
+  background:#fff1f1!important;
+  color:#c84242!important;
+  border:1px solid #f0cccc!important;
+  text-align:center!important;
+  min-width:64px;
+}

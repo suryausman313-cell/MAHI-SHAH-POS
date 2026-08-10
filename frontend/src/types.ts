@@ -7,6 +7,7 @@ export type MenuItem = {
   barcode?:string
   sku?:string
   modifiers?:{id:number;name:string;price:number}[]
+  sizes?:{id:number;name:string;price_delta:number;active?:boolean}[]
   image?:string
 }
 
@@ -85,13 +86,6 @@ export type Settings = {
   vat_enabled?:boolean
   vat_inclusive?:boolean
   cashier_card_size?:string
-  business_timezone_offset_minutes?:number
-  morning_sales_label?:string
-  morning_sales_start?:string
-  morning_sales_end?:string
-  evening_sales_label?:string
-  evening_sales_start?:string
-  evening_sales_end?:string
   allow_discounts?:boolean
   allow_coupons?:boolean
   allow_refunds?:boolean

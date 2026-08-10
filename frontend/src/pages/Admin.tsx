@@ -1,6 +1,6 @@
 import React,{useEffect,useMemo,useState} from 'react'
 import Shell from '../components/Shell'
-import {api,money,orderTime,PRINT_BRIDGE,sendToIpPrinter} from '../api'
+import {api,money,orderTime} from '../api'
 import type {InventoryItem,MenuItem,Order,Settings,Staff} from '../types'
 
 type Tab='dashboard'|'control'|'orders'|'shifts'|'menu'|'inventory'|'customers'|'suppliers'|'expenses'|'staff'|'reports'|'coupons'|'audit'|'advanced'|'printer'
@@ -36,19 +36,20 @@ function VatReportCard(){
  const[start,setStart]=useState(()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`})
  const[end,setEnd]=useState(()=>new Date().toISOString().slice(0,10))
  const load=()=>api(`/reports/uae-vat?start=${start}&end=${end}`).then(setData).catch((e:any)=>alert(e.message))
+ const fullMonth=()=>{const d=new Date(start+'T00:00:00'),y=d.getFullYear(),m=d.getMonth();setStart(`${y}-${String(m+1).padStart(2,'0')}-01`);const x=new Date(y,m+1,0);setEnd(`${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`)}
+ const printPdf=()=>{
+  if(!data){alert('Refresh report first');return}
+  const rows=(data.orders||[]).map((o:any)=>`<tr><td>#${o.id}</td><td>${o.date}</td><td>${o.time}</td><td>${String(o.payment_method||'').toUpperCase()}</td><td>AED ${Number(o.total||0).toFixed(2)}</td><td>AED ${Number(o.vat||0).toFixed(2)}</td><td>AED ${Number(o.refund||0).toFixed(2)}</td><td>AED ${Number(o.net||0).toFixed(2)}</td></tr>`).join('')
+  const w=window.open('','_blank','width=1100,height=800');if(!w){alert('Allow pop-ups to create PDF');return}
+  w.document.write(`<!doctype html><html><head><title>UAE VAT Sales Report</title><style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif;color:#172033;font-size:11px}h1{margin:0;font-size:22px}.sub{color:#68778b;margin:5px 0 18px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0}.box{border:1px solid #dfe5ec;border-radius:8px;padding:10px}.box span{display:block;color:#6b7788;font-size:9px;text-transform:uppercase}.box b{display:block;font-size:15px;margin-top:4px}table{width:100%;border-collapse:collapse;margin-top:15px}th,td{border-bottom:1px solid #e6e9ee;padding:6px;text-align:right}th{background:#f4f6f8;font-size:9px}th:first-child,td:first-child,th:nth-child(2),td:nth-child(2),th:nth-child(3),td:nth-child(3),th:nth-child(4),td:nth-child(4){text-align:left}.note{margin-top:15px;padding:10px;background:#f7f8fa;border-radius:8px;color:#59677a}.footer{margin-top:18px;text-align:center;color:#7a8798;font-size:9px}</style></head><body><h1>MAHI POS — UAE VAT Sales Report</h1><div class="sub">Period: ${data.period_start} to ${data.period_end} · ${data.order_count||0} orders</div><div class="grid"><div class="box"><span>Sales incl. VAT</span><b>AED ${Number(data.standard_rated_sales_including_vat||0).toFixed(2)}</b></div><div class="box"><span>Sales excl. VAT</span><b>AED ${Number(data.standard_rated_sales_excluding_vat||0).toFixed(2)}</b></div><div class="box"><span>Output VAT</span><b>AED ${Number(data.output_vat_collected||0).toFixed(2)}</b></div><div class="box"><span>Refunds</span><b>AED ${Number(data.refunds||0).toFixed(2)}</b></div><div class="box"><span>Discounts</span><b>AED ${Number(data.discounts||0).toFixed(2)}</b></div><div class="box"><span>Cash</span><b>AED ${Number(data.cash||0).toFixed(2)}</b></div><div class="box"><span>Card</span><b>AED ${Number(data.card||0).toFixed(2)}</b></div><div class="box"><span>Expenses</span><b>AED ${Number(data.expenses_total||0).toFixed(2)}</b></div></div><table><thead><tr><th>Order</th><th>Date</th><th>Time</th><th>Payment</th><th>Total</th><th>VAT</th><th>Refund</th><th>Net</th></tr></thead><tbody>${rows}</tbody></table><div class="note"><b>VAT note:</b> ${data.note||''}</div><div class="footer">Generated from MAHI POS sales records. Review figures and valid tax invoices before FTA filing.</div></body></html>`)
+  w.document.close();setTimeout(()=>{w.focus();w.print()},350)
+ }
  useEffect(()=>{load()},[])
  return <div className="pro-card uae-vat-card">
-  <div className="pro-card-head"><div><h3>UAE VAT Return Summary</h3><p>Sales/output VAT summary for FTA filing support</p></div></div>
-  <div className="vat-report-controls"><input type="date" value={start} onChange={e=>setStart(e.target.value)}/><input type="date" value={end} onChange={e=>setEnd(e.target.value)}/><button className="secondary-btn" onClick={load}>Refresh</button></div>
-  {data&&<div className="vat-report-grid">
-   <div><span>Sales incl. VAT</span><b>{money(data.standard_rated_sales_including_vat)}</b></div>
-   <div><span>Sales excl. VAT</span><b>{money(data.standard_rated_sales_excluding_vat)}</b></div>
-   <div><span>Output VAT</span><b>{money(data.output_vat_collected)}</b></div>
-   <div><span>Refunds</span><b>{money(data.refunds)}</b></div>
-   <div><span>Expenses</span><b>{money(data.expenses_total)}</b></div>
-   <div><span>Input VAT</span><b>Enter from tax invoices</b></div>
-  </div>}
-  <p className="helper">This report prepares the sales/output side. Recoverable input VAT should come from valid supplier tax invoices, not from automatically assuming 5% of every expense.</p>
+  <div className="pro-card-head"><div><h3>UAE VAT Sales Report</h3><p>Monthly or custom date-range sales/output VAT report</p></div></div>
+  <div className="vat-report-controls"><input type="date" value={start} onChange={e=>setStart(e.target.value)}/><input type="date" value={end} onChange={e=>setEnd(e.target.value)}/><button className="secondary-btn" onClick={fullMonth}>Full Month</button><button className="secondary-btn" onClick={load}>Refresh</button><button className="primary-btn" onClick={printPdf}>Print / Save PDF</button></div>
+  {data&&<><div className="vat-period-line"><b>{data.period_start}</b><span>to</span><b>{data.period_end}</b><strong>{data.order_count||0} orders</strong></div><div className="vat-report-grid"><div><span>Sales incl. VAT</span><b>{money(data.standard_rated_sales_including_vat)}</b></div><div><span>Sales excl. VAT</span><b>{money(data.standard_rated_sales_excluding_vat)}</b></div><div><span>Output VAT</span><b>{money(data.output_vat_collected)}</b></div><div><span>Refunds</span><b>{money(data.refunds)}</b></div><div><span>Discounts</span><b>{money(data.discounts)}</b></div><div><span>Cash</span><b>{money(data.cash)}</b></div><div><span>Card</span><b>{money(data.card)}</b></div><div><span>Expenses</span><b>{money(data.expenses_total)}</b></div></div><div className="vat-order-preview"><div className="vat-order-head"><b>Order Details</b><span>{(data.orders||[]).length} orders</span></div>{(data.orders||[]).slice(-12).reverse().map((o:any)=><div className="vat-order-row" key={o.id}><span><b>#{o.id}</b><small>{o.date} · {o.time} · {String(o.payment_method||'').toUpperCase()}</small></span><span>VAT {money(o.vat)}</span><strong>{money(o.net)}</strong></div>)}</div></>}
+  <p className="helper">Recoverable input VAT must come from valid supplier tax invoices; this report does not automatically treat every expense as recoverable VAT.</p>
  </div>
 }
 
@@ -236,7 +237,10 @@ export default function Admin(){
  useEffect(()=>{loadReceiptLogo()},[])
 
  const saveSettings=async()=>{await api('/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(settings)});alert('Settings saved');await load()}
- const testPrinter=async()=>{try{const native=!!(window as any).AndroidPrinter;if(!native){const h=await fetch(PRINT_BRIDGE+'/health');if(!h.ok)throw Error('Printer bridge not running')}await sendToIpPrinter({id:'TEST',order_type:'test',payment_method:'cash',subtotal:0,discount:0,vat:0,total:0,items:[{qty:1,name:'MAHI POS TEST',unit_price:0}]},settings);alert('Test print sent')}catch(e:any){alert(e.message)}}
+ const testPrinter=async()=>{try{
+  const r:any=await api('/print-queue/test',{method:'POST'})
+  alert(r?.queued?'Test receipt queued. Keep Cashier Android app open to print.':'Test print could not be queued')
+ }catch(e:any){alert(e.message)}}
 
  const groups=['MAIN','MANAGE','INSIGHTS','SYSTEM']
 

@@ -1,7 +1,1 @@
-const CACHE='mahi-pos-v1';
-const APP=['/','/admin','/kitchen','/waiter','/tables','/login','/customer-display'];
-self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(APP)).catch(()=>{})));
-self.addEventListener('fetch',e=>{
-  if(e.request.method!=='GET')return;
-  e.respondWith(fetch(e.request).then(r=>{const copy=r.clone();caches.open(CACHE).then(c=>c.put(e.request,copy));return r}).catch(()=>caches.match(e.request).then(r=>r||caches.match('/'))))
-});
+const CACHE='mahi-pos-pwa-v5';self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['/','/admin','/waiter','/cashier.webmanifest','/admin.webmanifest','/waiter.webmanifest','/icons/cashier-192.png','/icons/cashier-512.png','/icons/admin-192.png','/icons/admin-512.png','/icons/waiter-192.png','/icons/waiter-512.png'])).catch(()=>{}))});self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==CACHE).map(x=>caches.delete(x)))).then(()=>self.clients.claim())));self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;if(e.request.mode==='navigate'){e.respondWith(fetch(e.request).catch(()=>caches.match(e.request).then(r=>r||caches.match('/'))));return}e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)))});

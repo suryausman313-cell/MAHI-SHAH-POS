@@ -105,6 +105,7 @@ export default function Admin(){
  const[stations,setStations]=useState<any[]>([])
  const[deals,setDeals]=useState<any[]>([])
  const[transfers,setTransfers]=useState<any[]>([])
+ const[receiptLogo,setReceiptLogo]=useState('')
  const[settings,setSettings]=useState<any>({
    shop_name:'',shop_phone:'',shop_address:'',trn:'',vat_percent:5,vat_inclusive:true,cashier_card_size:'auto',business_timezone_offset_minutes:240,
    morning_sales_label:'Morning',morning_sales_start:'08:00',morning_sales_end:'16:00',
@@ -187,6 +188,53 @@ export default function Admin(){
  const cashMove=async(type:'in'|'out')=>{if(!currentShift)return alert('No open shift');const amt=prompt(`Cash ${type} amount`);if(!amt)return;await post(`/shifts/${currentShift.id}/cash`,{movement_type:type,amount:+amt,reason:prompt('Reason')||''})}
  const closeShift=async()=>{if(!currentShift)return;const actual=prompt(`Expected ${currentShift.expected_cash}. Actual cash?`);if(actual===null)return;const pin=prompt('Manager/Admin PIN');if(!pin)return;try{const r:any=await api(`/shifts/${currentShift.id}/close`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({actual_cash:+actual||0,staff_pin:pin})});alert(`Shift closed. Difference ${r.difference}`);await load()}catch(e:any){alert(e.message)}}
  const closeDay=async()=>{const pin=prompt('Manager/Admin PIN');if(!pin)return;try{const r:any=await api('/day-close',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin})});alert(`Day closed. Sales ${r.sales}`);await load()}catch(e:any){alert(e.message)}}
+ const loadReceiptLogo=async()=>{
+  try{
+    const r:any=await api('/receipt-logo')
+    setReceiptLogo(r?.data_url||'')
+  }catch{}
+ }
+
+ const saveReceiptLogo=async(file:File)=>{
+  try{
+    const dataUrl:string=await new Promise((resolve,reject)=>{
+      const reader=new FileReader()
+      reader.onload=()=>{
+        const img=new Image()
+        img.onload=()=>{
+          const maxW=384
+          const scale=Math.min(1,maxW/img.width)
+          const canvas=document.createElement('canvas')
+          canvas.width=Math.max(1,Math.round(img.width*scale))
+          canvas.height=Math.max(1,Math.round(img.height*scale))
+          const ctx=canvas.getContext('2d')
+          if(!ctx){reject(new Error('Image processing failed'));return}
+          ctx.fillStyle='#fff'
+          ctx.fillRect(0,0,canvas.width,canvas.height)
+          ctx.drawImage(img,0,0,canvas.width,canvas.height)
+          resolve(canvas.toDataURL('image/png'))
+        }
+        img.onerror=()=>reject(new Error('Invalid logo image'))
+        img.src=String(reader.result)
+      }
+      reader.onerror=()=>reject(reader.error||new Error('File read failed'))
+      reader.readAsDataURL(file)
+    })
+
+    await api('/receipt-logo',{
+      method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({data_url:dataUrl})
+    })
+    setReceiptLogo(dataUrl)
+    alert('Receipt logo saved')
+  }catch(e:any){
+    alert(e.message)
+  }
+ }
+
+ useEffect(()=>{loadReceiptLogo()},[])
+
  const saveSettings=async()=>{await api('/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(settings)});alert('Settings saved');await load()}
  const testPrinter=async()=>{try{const native=!!(window as any).AndroidPrinter;if(!native){const h=await fetch(PRINT_BRIDGE+'/health');if(!h.ok)throw Error('Printer bridge not running')}await sendToIpPrinter({id:'TEST',order_type:'test',payment_method:'cash',subtotal:0,discount:0,vat:0,total:0,items:[{qty:1,name:'MAHI POS TEST',unit_price:0}]},settings);alert('Test print sent')}catch(e:any){alert(e.message)}}
 
@@ -329,6 +377,23 @@ export default function Admin(){
     </>}
 
     {tab==='menu'&&<>
+      <div className="admin-menu-sync-row">
+        <button
+          className="secondary-btn"
+          onClick={async()=>{
+            try{
+              await api('/sync/menu',{method:'POST'})
+              await load()
+              alert('Menu synced')
+            }catch(e:any){
+              alert(e.message)
+            }
+          }}
+        >
+          ↻ Sync Menu
+        </button>
+      </div>
+
       <div className="pro-page-head"><div><h2>Menu Management</h2><p>Products, categories, pricing and barcode</p></div></div>
       <div className="pro-form-card"><input placeholder="Item name" value={menuForm.name} onChange={e=>setMenuForm({...menuForm,name:e.target.value})}/><input placeholder="Category" value={menuForm.category} onChange={e=>setMenuForm({...menuForm,category:e.target.value})}/><input type="number" placeholder="Price" value={menuForm.price} onChange={e=>setMenuForm({...menuForm,price:e.target.value})}/><input placeholder="Barcode" value={menuForm.barcode} onChange={e=>setMenuForm({...menuForm,barcode:e.target.value})}/><button className="primary-btn" onClick={addMenu}>Add Item</button></div>
       <div className="pro-product-grid">{menu.map(i=><article key={i.id}><div className="pro-product-icon">{i.image?<img src={i.image} alt={i.name}/>:i.name[0]}</div><div><small>{i.category}</small><strong>{i.name}</strong><b>{money(i.price)}</b><em>{settings?.vat_enabled!==false&&settings?.vat_inclusive!==false?`VAT inside ${money(vatInside(i.price))}`:(i.barcode||'No barcode')}</em></div><div className="product-actions"><label className="image-upload-btn">Photo<input type="file" accept="image/*" onChange={e=>e.target.files?.[0]&&saveImage(i,e.target.files[0])}/></label><button className="size-manage-btn" onClick={()=>manageSizes(i)}>+ Size</button><button onClick={()=>delMenu(i.id)}>Disable</button></div>{i.sizes?.length>0&&<div className="admin-size-list">{i.sizes.filter((s:any)=>s.active!==false).map((s:any)=><button key={s.id} onClick={()=>removeSize(s.id)}>{s.name} · {money(i.price+s.price_delta)} ×</button>)}</div>}</article>)}</div>
@@ -407,9 +472,22 @@ export default function Admin(){
     </>}
 
     {tab==='printer'&&<>
-      <div className="pro-page-head"><div><h2>Printer & Shop Settings</h2><p>Receipt details and network printer</p></div></div>
+      <div className="pro-page-head"><div><h2>Printer & Shop Settings</h2><p>Professional receipt, logo and network printer</p></div></div>
       <div className="pro-settings-grid">
-       <div className="pro-settings-card"><div className="settings-icon">🏪</div><h3>Restaurant Details</h3><label>Shop Name<input value={settings.shop_name||''} onChange={e=>setSettings({...settings,shop_name:e.target.value})}/></label><label>Phone<input value={settings.shop_phone||''} onChange={e=>setSettings({...settings,shop_phone:e.target.value})}/></label><label>Address<input value={settings.shop_address||''} onChange={e=>setSettings({...settings,shop_address:e.target.value})}/></label><label>TRN<input value={settings.trn||''} onChange={e=>setSettings({...settings,trn:e.target.value})}/></label><label>VAT %<input type="number" value={settings.vat_percent||5} onChange={e=>setSettings({...settings,vat_percent:+e.target.value})}/></label><label>Receipt Footer<input value={settings.receipt_footer||''} onChange={e=>setSettings({...settings,receipt_footer:e.target.value})}/></label></div>
+       <div className="pro-settings-card"><div className="settings-icon">🏪</div><h3>Restaurant Details</h3><label>Shop Name<input value={settings.shop_name||''} onChange={e=>setSettings({...settings,shop_name:e.target.value})}/></label><label>Phone<input value={settings.shop_phone||''} onChange={e=>setSettings({...settings,shop_phone:e.target.value})}/></label><label>Address<input value={settings.shop_address||''} onChange={e=>setSettings({...settings,shop_address:e.target.value})}/></label><label>TRN<input value={settings.trn||''} onChange={e=>setSettings({...settings,trn:e.target.value})}/></label><label>VAT %<input type="number" value={settings.vat_percent||5} onChange={e=>setSettings({...settings,vat_percent:+e.target.value})}/></label><div className="receipt-logo-admin">
+         <span>Receipt Logo</span>
+         <div className="receipt-logo-preview">
+          {receiptLogo?<img src={receiptLogo} alt="Receipt logo"/>:<div>No Logo</div>}
+         </div>
+         <label className="receipt-logo-upload">
+          Upload / Change Logo
+          <input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>e.target.files?.[0]&&saveReceiptLogo(e.target.files[0])}/>
+         </label>
+         {receiptLogo&&<button className="receipt-logo-remove" onClick={async()=>{
+          await api('/receipt-logo',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({data_url:''})})
+          setReceiptLogo('')
+         }}>Remove Logo</button>}
+        </div><label>Receipt Footer<input value={settings.receipt_footer||''} onChange={e=>setSettings({...settings,receipt_footer:e.target.value})}/></label></div>
        <div className="pro-settings-card"><div className="settings-icon">🖨️</div><h3>Receipt Printer</h3><label>Printer IP<input placeholder="192.168.1.50" value={settings.printer_ip||''} onChange={e=>setSettings({...settings,printer_ip:e.target.value})}/></label><label>Port<input type="number" value={settings.printer_port||9100} onChange={e=>setSettings({...settings,printer_port:+e.target.value})}/></label><label className="pro-toggle"><span><b>Auto Print</b><small>Print receipt after order</small></span><input type="checkbox" checked={!!settings.auto_print} onChange={e=>setSettings({...settings,auto_print:e.target.checked})}/></label><label className="pro-toggle"><span><b>Auto Cash Drawer</b><small>Open drawer after cash sale</small></span><input type="checkbox" checked={settings.auto_cash_drawer!==false} onChange={e=>setSettings({...settings,auto_cash_drawer:e.target.checked})}/></label><label className="pro-toggle"><span><b>Require Open Shift</b><small>Cashier must open shift</small></span><input type="checkbox" checked={!!settings.require_shift} onChange={e=>setSettings({...settings,require_shift:e.target.checked})}/></label><label className="pro-toggle"><span><b>Kitchen Sound</b><small>New order alert</small></span><input type="checkbox" checked={!!settings.kitchen_sound} onChange={e=>setSettings({...settings,kitchen_sound:e.target.checked})}/></label><div className="button-row"><button className="secondary-btn" onClick={testPrinter}>Test Printer</button><button className="primary-btn" onClick={saveSettings}>Save Settings</button></div></div>
       </div>
     </>}

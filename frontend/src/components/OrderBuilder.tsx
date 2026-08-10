@@ -45,27 +45,19 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
   const [selectedSizes,setSelectedSizes]=useState<Record<number,{id:number;name:string;price_delta:number}>>({})
 
   const load=async()=>{
-    const [m,t,s,c,st,sh,p]=await Promise.all([
-      api<MenuItem[]>('/menu'),
-      api<PosTable[]>('/tables'),
-      api<Staff[]>('/staff'),
-      api<Customer[]>('/customers'),
-      api<Settings>('/settings'),
-      api<Shift|null>('/shifts/current'),
-      api<any[]>('/orders/pending-payment')
+    const [m,st]=await Promise.all([api<MenuItem[]>('/menu'),api<Settings>('/settings')])
+    setMenu(m);setSettings(st)
+    const results=await Promise.allSettled([
+      api<PosTable[]>('/tables'),api<Staff[]>('/staff'),api<Customer[]>('/customers'),
+      api<Shift|null>('/shifts/current'),api<any[]>('/orders/pending-payment')
     ])
-
-    setMenu(m)
-    setTables(t)
-    setStaff(s)
-    setCustomers(c)
-    setSettings(st)
-    setShift(sh)
-    setPending(p)
-
-    if(isWaiter&&loggedUser?.id){
-      setWaiterId(loggedUser.id)
-    }
+    if(results[0].status==='fulfilled')setTables(results[0].value)
+    if(results[1].status==='fulfilled')setStaff(results[1].value)
+    if(results[2].status==='fulfilled')setCustomers(results[2].value)
+    if(results[3].status==='fulfilled')setShift(results[3].value)
+    if(results[4].status==='fulfilled')setPending(results[4].value)
+    else{console.error('Pending payment load failed',results[4].reason);setPending([])}
+    if(isWaiter&&loggedUser?.id)setWaiterId(loggedUser.id)
   }
 
   useEffect(()=>{

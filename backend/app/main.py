@@ -324,6 +324,21 @@ class ReceiptAsset(Base):
     data_url = Column(Text, default="")
 
 
+
+
+class PrintJob(Base):
+    __tablename__ = "print_jobs"
+    id = Column(Integer, primary_key=True)
+    order_id = Column(Integer, nullable=True)
+    kind = Column(String, default="kitchen")
+    status = Column(String, default="pending")
+    attempts = Column(Integer, default=0)
+    payload = Column(Text, default="{}")
+    last_error = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
 Base.metadata.create_all(bind=engine)
 
 
@@ -389,6 +404,74 @@ def order_to_dict(db, o):
             "modifiers": json.loads(i.modifiers or "[]"), "notes": i.notes
         } for i in o.items]
     }
+
+
+
+def kitchen_print_lines(db, o):
+    shop_name = get_setting(db, "shop_name", "MAHI POS")
+    lines = [
+        shop_name,
+        "KITCHEN ORDER",
+        "--------------------------------",
+        f"Order #{o.id}  {str(o.order_type or '').upper()}",
+    ]
+
+    waiter = db.query(Staff).filter(Staff.id == o.waiter_id).first() if o.waiter_id else None
+    if waiter:
+        lines.append(f"Staff: {waiter.name}")
+
+    if o.delivery_address:
+        lines.append(f"Delivery: {o.delivery_address}")
+
+    lines.append("--------------------------------")
+
+    for item in o.items:
+        lines.append(f"{item.qty} x {item.name}")
+        try:
+            mods = json.loads(item.modifiers or "[]")
+        except:
+            mods = []
+        for m in mods:
+            lines.append(f"  + {m.get('name','')}")
+        if item.notes:
+            lines.append(f"  NOTE: {item.notes}")
+
+    lines += [
+        "--------------------------------",
+        datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+    ]
+    return lines
+
+
+def enqueue_print_job(db, order=None, kind="kitchen", lines=None):
+    printer_ip = get_setting(db, "printer_ip", "").strip()
+    printer_port = int(get_setting(db, "printer_port", "9100") or 9100)
+
+    if not printer_ip:
+        return None
+
+    if lines is None and order is not None:
+        lines = kitchen_print_lines(db, order)
+
+    payload = {
+        "ip": printer_ip,
+        "port": printer_port,
+        "lines": lines or [],
+        "cut": True,
+    }
+
+    job = PrintJob(
+        order_id=order.id if order is not None else None,
+        kind=kind,
+        status="pending",
+        attempts=0,
+        payload=json.dumps(payload),
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(job)
+    db.flush()
+    return job
 
 
 def stock_apply_for_order(db, order, direction=-1):
@@ -652,6 +735,10 @@ class OrderIn(BaseModel):
     delivery_address: str = ""
     notes: str = ""
     hold: bool = False
+
+
+class PrintFailIn(BaseModel):
+    error: str = ""
 
 class SplitPaymentIn(BaseModel):
     cash: float = 0
@@ -1619,6 +1706,12 @@ def add_order(x: OrderIn):
         if table:
             table.status = "occupied"
     db.flush()
+
+    # Central print queue: every device sends printing through the backend.
+    # Held orders always go to kitchen. Normal orders print when Admin Auto Print is ON.
+    if x.hold or flag(db, "auto_print", False):
+        enqueue_print_job(db, o, kind="kitchen")
+
     if not x.hold:
         stock_apply_for_order(db, o, direction=-1)
     if x.customer_id:
@@ -2137,6 +2230,129 @@ def day_parts_report(business_date: Optional[str] = None):
         "morning": {"label": ml, "start": ms, "end": me, **_sales_bucket(morning_rows)},
         "evening": {"label": el, "start": es, "end": ee, **_sales_bucket(evening_rows)},
         "full_day": _sales_bucket(full_day_rows),
+    }
+    db.close()
+    return out
+
+
+
+
+# CENTRAL PRINT QUEUE
+@app.get("/print-queue/next")
+def print_queue_next():
+    db = db_session()
+    now = datetime.utcnow()
+
+    # Recover a job if a bridge claimed it but disappeared for over 90 seconds.
+    stale = db.query(PrintJob).filter(PrintJob.status == "printing").all()
+    for j in stale:
+        if j.updated_at and (now - j.updated_at).total_seconds() > 90:
+            j.status = "pending"
+            j.updated_at = now
+
+    job = (
+        db.query(PrintJob)
+        .filter(PrintJob.status.in_(["pending", "failed"]), PrintJob.attempts < 10)
+        .order_by(PrintJob.id.asc())
+        .first()
+    )
+
+    if not job:
+        db.commit()
+        db.close()
+        return {"job": None}
+
+    job.status = "printing"
+    job.attempts = int(job.attempts or 0) + 1
+    job.updated_at = now
+    payload = json.loads(job.payload or "{}")
+    db.commit()
+
+    out = {
+        "job": {
+            "id": job.id,
+            "order_id": job.order_id,
+            "kind": job.kind,
+            "attempts": job.attempts,
+            **payload,
+        }
+    }
+    db.close()
+    return out
+
+
+@app.post("/print-queue/{job_id}/done")
+def print_queue_done(job_id: int):
+    db = db_session()
+    job = db.query(PrintJob).filter(PrintJob.id == job_id).first()
+    if not job:
+        db.close()
+        raise HTTPException(404, "Print job not found")
+    job.status = "done"
+    job.last_error = ""
+    job.updated_at = datetime.utcnow()
+    db.commit()
+    db.close()
+    return {"ok": True}
+
+
+@app.post("/print-queue/{job_id}/fail")
+def print_queue_fail(job_id: int, x: PrintFailIn):
+    db = db_session()
+    job = db.query(PrintJob).filter(PrintJob.id == job_id).first()
+    if not job:
+        db.close()
+        raise HTTPException(404, "Print job not found")
+    job.status = "failed"
+    job.last_error = x.error[:1000]
+    job.updated_at = datetime.utcnow()
+    db.commit()
+    db.close()
+    return {"ok": True}
+
+
+@app.post("/print-queue/test")
+def print_queue_test():
+    db = db_session()
+    ip = get_setting(db, "printer_ip", "").strip()
+    if not ip:
+        db.close()
+        raise HTTPException(400, "Save Printer IP first")
+
+    job = enqueue_print_job(
+        db,
+        order=None,
+        kind="test",
+        lines=[
+            get_setting(db, "shop_name", "MAHI POS"),
+            "PRINTER TEST",
+            "--------------------------------",
+            "Central Print Bridge is working",
+            datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+            "--------------------------------",
+        ],
+    )
+    db.commit()
+    job_id = job.id if job else None
+    db.close()
+    return {"ok": True, "queued": True, "job_id": job_id}
+
+
+@app.get("/print-queue/status")
+def print_queue_status():
+    db = db_session()
+    pending = db.query(PrintJob).filter(PrintJob.status.in_(["pending", "printing", "failed"])).count()
+    done = db.query(PrintJob).filter(PrintJob.status == "done").count()
+    last = db.query(PrintJob).order_by(PrintJob.id.desc()).first()
+    out = {
+        "pending": pending,
+        "done": done,
+        "last": {
+            "id": last.id,
+            "status": last.status,
+            "error": last.last_error,
+            "attempts": last.attempts,
+        } if last else None,
     }
     db.close()
     return out

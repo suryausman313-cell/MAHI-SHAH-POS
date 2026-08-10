@@ -1,0 +1,37 @@
+name: Build MAHI POS Waiter APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "android-waiter/**"
+      - ".github/workflows/build-waiter-apk.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android-waiter
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build debug APK
+        run: gradle :app:assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MAHI-POS-Waiter-APK
+          path: android-waiter/app/build/outputs/apk/debug/app-debug.apk

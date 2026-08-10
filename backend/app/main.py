@@ -633,6 +633,7 @@ class PrinterIn(BaseModel):
 class OrderItemIn(BaseModel):
     menu_item_id: int
     qty: int = 1
+    size_id: Optional[int] = None
     modifier_ids: List[int] = []
     notes: str = ""
 
@@ -904,6 +905,7 @@ def menu():
             "id": x.id, "name": x.name, "category": x.category, "price": x.price,
             "barcode": x.barcode, "sku": x.sku, "active": x.active,
             "modifiers": [{"id": m.id, "name": m.name, "price": m.price} for m in mods],
+            "sizes": [{"id": s.id, "name": s.name, "price_delta": s.price_delta} for s in db.query(SizeOption).filter(SizeOption.menu_item_id == x.id, SizeOption.active == True).all()],
             "image": (db.query(ProductMedia).filter(ProductMedia.menu_item_id == x.id).first().image_data
                       if db.query(ProductMedia).filter(ProductMedia.menu_item_id == x.id).first() else "")
         })
@@ -929,6 +931,7 @@ def admin_menu():
     rows = db.query(MenuItem).order_by(MenuItem.category, MenuItem.name).all()
     out = [{"id": x.id, "name": x.name, "category": x.category, "price": x.price,
             "barcode": x.barcode, "sku": x.sku, "active": x.active,
+            "sizes": [{"id": s.id, "name": s.name, "price_delta": s.price_delta, "active": s.active} for s in db.query(SizeOption).filter(SizeOption.menu_item_id == x.id).all()],
             "image": (db.query(ProductMedia).filter(ProductMedia.menu_item_id == x.id).first().image_data
                       if db.query(ProductMedia).filter(ProductMedia.menu_item_id == x.id).first() else "")} for x in rows]
     db.close()
@@ -1545,15 +1548,23 @@ def add_order(x: OrderIn):
             db.close()
             raise HTTPException(400, f"Invalid menu item {ci.menu_item_id}")
         qty = max(1, ci.qty)
+        size = None
+        size_delta = 0.0
+        if ci.size_id:
+            size = db.query(SizeOption).filter(SizeOption.id == ci.size_id, SizeOption.menu_item_id == m.id, SizeOption.active == True).first()
+            if not size:
+                db.close()
+                raise HTTPException(400, "Invalid size")
+            size_delta = float(size.price_delta or 0)
         mods = []
         mods_total = 0.0
         if ci.modifier_ids:
             mod_rows = db.query(Modifier).filter(Modifier.id.in_(ci.modifier_ids), Modifier.active == True).all()
             mods = [{"id": mod.id, "name": mod.name, "price": mod.price} for mod in mod_rows]
             mods_total = sum(mod.price for mod in mod_rows)
-        unit_price = m.price + mods_total
+        unit_price = m.price + size_delta + mods_total
         subtotal += unit_price * qty
-        selected.append((m, qty, ci.notes, mods, unit_price))
+        selected.append((m, qty, ci.notes, mods, unit_price, size))
 
     discount = max(0, min(x.discount, subtotal))
     coupon_code = x.coupon_code.strip().upper()
@@ -1596,9 +1607,10 @@ def add_order(x: OrderIn):
         subtotal=round(subtotal, 2), discount=round(discount, 2), vat=vat, total=total,
         coupon_code=coupon_code, delivery_address=x.delivery_address, status=status, notes=x.notes
     )
-    for m, qty, note, mods, unit_price in selected:
+    for m, qty, note, mods, unit_price, size in selected:
+        display_name = f"{m.name} - {size.name}" if size else m.name
         o.items.append(OrderItem(
-            menu_item_id=m.id, name=m.name, qty=qty, unit_price=unit_price,
+            menu_item_id=m.id, name=display_name, qty=qty, unit_price=unit_price,
             modifiers=json.dumps(mods), notes=note
         ))
     db.add(o)
@@ -1871,6 +1883,16 @@ def add_size(x: SizeIn):
     r = SizeOption(**x.model_dump())
     db.add(r); db.commit(); db.refresh(r)
     out={"id":r.id}; db.close(); return out
+
+@app.delete("/sizes/{size_id}")
+def delete_size(size_id: int):
+    db = db_session()
+    r = db.query(SizeOption).filter(SizeOption.id == size_id).first()
+    if not r:
+        db.close(); raise HTTPException(404, "Size not found")
+    r.active = False
+    db.commit(); db.close()
+    return {"ok": True}
 
 @app.get("/deals")
 def get_deals():

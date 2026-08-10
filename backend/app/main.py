@@ -1878,6 +1878,24 @@ def held_orders():
     return out
 
 
+@app.get("/orders/pending-payment")
+def pending_payment_orders():
+    db = db_session()
+    rows = (
+        db.query(Order)
+        .filter(Order.status == "held")
+        .order_by(Order.id.desc())
+        .all()
+    )
+    out = []
+    for o in rows:
+        d = order_to_dict(db, o)
+        d["payment_status"] = "pending"
+        out.append(d)
+    db.close()
+    return out
+
+
 @app.get("/orders/{order_id}")
 def order_detail(order_id: int):
     db = db_session()
@@ -2368,22 +2386,6 @@ def day_parts_report(business_date: Optional[str] = None):
 
 
 
-@app.get("/orders/pending-payment")
-def pending_payment_orders():
-    db = db_session()
-    rows = (
-        db.query(Order)
-        .filter(Order.status == "held")
-        .order_by(Order.id.desc())
-        .all()
-    )
-    out = []
-    for o in rows:
-        d = order_to_dict(db, o)
-        d["payment_status"] = "pending"
-        out.append(d)
-    db.close()
-    return out
 
 
 @app.post("/orders/{order_id}/pay")
@@ -2666,16 +2668,22 @@ def uae_vat_report(start: Optional[str] = None, end: Optional[str] = None):
         if s <= x.created_at.date() <= e
     ), 2)
 
+    cash_total = round(sum(max(0, o.cash_paid) for o in rows), 2)
+    card_total = round(sum(max(0, o.card_paid) for o in rows), 2)
+    discount_total = round(sum(max(0, o.discount) for o in rows), 2)
+    order_rows = [{
+        "id": o.id, "date": o.created_at.strftime("%Y-%m-%d"), "time": o.created_at.strftime("%H:%M"),
+        "payment_method": o.payment_method or "", "subtotal": round(float(o.subtotal or 0), 2),
+        "discount": round(float(o.discount or 0), 2), "vat": round(float(o.vat or 0), 2),
+        "total": round(float(o.total or 0), 2), "refund": round(float(o.refund_amount or 0), 2),
+        "net": round(float(o.total or 0) - float(o.refund_amount or 0), 2),
+    } for o in sorted(rows, key=lambda x: x.created_at)]
     out = {
-        "period_start": s.isoformat(),
-        "period_end": e.isoformat(),
-        "standard_rated_sales_including_vat": gross_sales,
-        "standard_rated_sales_excluding_vat": sales_ex_vat,
-        "output_vat_collected": output_vat,
-        "refunds": refunds,
-        "expenses_total": expense_total,
-        "recoverable_input_vat": None,
-        "net_vat_before_input_tax": output_vat,
+        "period_start": s.isoformat(), "period_end": e.isoformat(), "order_count": len(rows),
+        "standard_rated_sales_including_vat": gross_sales, "standard_rated_sales_excluding_vat": sales_ex_vat,
+        "output_vat_collected": output_vat, "discounts": discount_total, "refunds": refunds,
+        "cash": cash_total, "card": card_total, "expenses_total": expense_total,
+        "recoverable_input_vat": None, "net_vat_before_input_tax": output_vat, "orders": order_rows,
         "note": "Recoverable input VAT must be entered from valid supplier tax invoices; it is not auto-assumed from expenses."
     }
     db.close()

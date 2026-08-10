@@ -637,9 +637,75 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
           <small>MAHI POS</small>
           <h1>Open Shift</h1>
           <p>Open the cash drawer shift before starting sales.</p>
-          <button onClick={openShift}>OPEN SHIFT</button>
-          <button className="shift-gate-logout" onClick={logout}>LOG OUT</button>
+
+          <button
+            onClick={()=>{
+              setOpeningCashInput('0')
+              setShiftOpenModal(true)
+            }}
+          >
+            OPEN SHIFT
+          </button>
+
+          <button
+            className="shift-gate-logout"
+            onClick={logout}
+          >
+            LOG OUT
+          </button>
         </div>
+
+        {shiftOpenModal&&(
+          <div className="pos-big-modal-backdrop">
+            <div className="pos-big-modal">
+
+              <div className="pos-big-modal-head">
+                <div>
+                  <small>SHIFT CONTROL</small>
+                  <h2>Open Shift</h2>
+                </div>
+
+                <button
+                  onClick={()=>
+                    setShiftOpenModal(false)
+                  }
+                >
+                  ×
+                </button>
+              </div>
+
+              <label className="pos-big-field">
+                <span>Starting Cash</span>
+
+                <div className="pos-big-money-input">
+                  <b>AED</b>
+
+                  <input
+                    autoFocus
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="0.01"
+                    value={openingCashInput}
+                    onChange={e=>
+                      setOpeningCashInput(
+                        e.target.value
+                      )
+                    }
+                  />
+                </div>
+              </label>
+
+              <button
+                className="pos-big-primary"
+                onClick={confirmOpenShift}
+              >
+                CONFIRM OPEN SHIFT
+              </button>
+
+            </div>
+          </div>
+        )}
       </div>
     )
   }

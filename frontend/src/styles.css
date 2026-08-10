@@ -371,3 +371,93 @@ button{cursor:pointer}
 .daypart-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-top:9px}.daypart-stats span{font-size:8px;color:#7f8b9c}.daypart-stats b{display:block;font-size:11px;color:#27364d;margin-top:2px}
 @media(max-width:1100px){.dayparts-settings{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:720px){.dayparts-grid{grid-template-columns:1fr}.dayparts-settings{grid-template-columns:1fr 1fr}}
+
+/* PRODUCT PHOTO / ITEM LAYOUT FIX */
+.cashier-clean-workspace .product-card{
+  display:flex!important;
+  flex-direction:column!important;
+  align-items:stretch!important;
+  overflow:hidden!important;
+  padding:0!important;
+  min-height:170px;
+  background:#fff;
+}
+.cashier-clean-workspace .product-photo{
+  width:100%!important;
+  height:88px!important;
+  min-height:88px!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  background:#f7f9fc!important;
+  overflow:hidden!important;
+  border-radius:0!important;
+}
+.cashier-clean-workspace .product-photo img{
+  width:100%!important;
+  height:100%!important;
+  object-fit:contain!important;
+  object-position:center!important;
+  padding:5px;
+}
+.cashier-clean-workspace .product-info{
+  padding:10px 11px 12px!important;
+  min-height:78px;
+  display:flex!important;
+  flex-direction:column!important;
+  align-items:flex-start!important;
+  justify-content:flex-start!important;
+}
+.cashier-clean-workspace .product-info small,
+.cashier-clean-workspace .product-info strong,
+.cashier-clean-workspace .product-info b{
+  position:static!important;
+  display:block!important;
+}
+.cashier-clean-workspace .product-info strong{margin:3px 0 7px!important}
+.cashier-clean-workspace .product-info b{margin-top:auto!important}
+
+.pro-product-icon{
+  overflow:hidden!important;
+}
+.pro-product-icon img{
+  width:100%!important;
+  height:100%!important;
+  object-fit:contain!important;
+  object-position:center!important;
+  padding:3px;
+}
+
+/* CLOSING RECEIPT */
+.closing-modal-backdrop{
+  position:fixed;inset:0;z-index:1200;
+  background:rgba(5,12,23,.58);
+  display:grid;place-items:center;
+  padding:18px;
+}
+.closing-receipt{
+  width:min(430px,96vw);
+  max-height:94vh;
+  overflow:auto;
+  background:#fff;
+  border-radius:18px;
+  box-shadow:0 30px 90px rgba(0,0,0,.28);
+  padding:20px;
+}
+.closing-receipt-head{
+  display:flex;justify-content:space-between;align-items:flex-start;
+  padding-bottom:12px;border-bottom:2px dashed #dfe4eb;
+}
+.closing-receipt-head b,.closing-receipt-head span{display:block}
+.closing-receipt-head b{font-size:17px}
+.closing-receipt-head span{font-size:10px;color:#7f8b9c;margin-top:3px}
+.closing-receipt-head button{border:0;background:#f2f4f7;width:34px;height:34px;border-radius:9px;font-size:20px}
+.closing-meta{display:flex;justify-content:space-between;gap:10px;padding:11px 0;font-size:10px}
+.closing-lines{border-top:1px solid #edf1f5}
+.closing-lines>div{display:flex;justify-content:space-between;gap:15px;padding:8px 1px;font-size:11px}
+.closing-lines hr{border:0;border-top:1px dashed #ccd4df;margin:5px 0}
+.closing-lines .strong{font-size:13px;font-weight:850}
+.closing-lines .difference{color:#c84747}
+.closing-footer{border-top:2px dashed #dfe4eb;margin-top:8px;padding-top:12px;display:flex;justify-content:space-between;align-items:center}
+.closing-footer span{font-size:9px;color:#8a96a6}
+.staff-sales-card{margin:13px 0}

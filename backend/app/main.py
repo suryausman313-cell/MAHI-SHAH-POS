@@ -443,6 +443,119 @@ def kitchen_print_lines(db, o):
     return lines
 
 
+
+def receipt_print_lines(db, o):
+    shop_name = get_setting(db, "shop_name", "MAHI POS")
+    shop_phone = get_setting(db, "shop_phone", "")
+    shop_address = get_setting(db, "shop_address", "")
+    trn = get_setting(db, "trn", "")
+    footer = get_setting(db, "receipt_footer", "Thank you! Visit Again")
+    vat_enabled = flag(db, "vat_enabled", True)
+    vat_inclusive = flag(db, "vat_inclusive", True)
+    vat_percent = float(get_setting(db, "vat_percent", "5") or 5)
+
+    waiter = db.query(Staff).filter(Staff.id == o.waiter_id).first() if o.waiter_id else None
+    width = 42
+
+    def center(s):
+        s = str(s or "")
+        return s.center(width)[:width]
+
+    def lr(left, right):
+        left = str(left or "")
+        right = str(right or "")
+        room = max(1, width - len(right))
+        return (left[:room].ljust(room) + right)[:width]
+
+    dt = o.created_at or datetime.utcnow()
+    lines = [
+        center(shop_name),
+    ]
+
+    if shop_address:
+        for part in str(shop_address).split("\n"):
+            if part.strip():
+                lines.append(center(part.strip()))
+
+    if shop_phone:
+        lines.append(center(shop_phone))
+
+    if trn:
+        lines.append(center(f"TRN: {trn}"))
+
+    lines += [
+        "-" * width,
+        lr(f"Receipt #: {o.id}", dt.strftime("%d/%m/%Y")),
+        lr(f"Order: #{o.id}", dt.strftime("%I:%M %p")),
+        lr("Type", str(o.order_type or "takeaway").upper()),
+    ]
+
+    if waiter:
+        lines.append(lr("Employee", waiter.name))
+
+    lines.append("-" * width)
+
+    for item in o.items:
+        name = str(item.name or "Item")
+        qty = float(item.qty or 0)
+        unit = float(item.unit_price or 0)
+        total = qty * unit
+
+        lines.append(lr(name.upper(), f"AED {total:.2f}"))
+
+        qty_text = f"{qty:g} x AED {unit:.2f}"
+        if item.size_name:
+            qty_text += f"  {item.size_name}"
+        lines.append(qty_text[:width])
+
+        try:
+            mods = json.loads(item.modifiers or "[]")
+        except:
+            mods = []
+        for mod in mods:
+            mod_name = str(mod.get("name", "")).strip()
+            if mod_name:
+                lines.append(("  + " + mod_name)[:width])
+
+    lines.append("-" * width)
+
+    subtotal = float(o.subtotal or 0)
+    discount = float(o.discount or 0)
+    total = float(o.total or 0)
+
+    lines.append(lr("Subtotal", f"AED {subtotal:.2f}"))
+
+    if discount > 0:
+        lines.append(lr("Discount", f"- AED {discount:.2f}"))
+
+    if vat_enabled:
+        if vat_inclusive:
+            vat_amount = total - (total / (1 + vat_percent / 100)) if total else 0
+            lines.append(lr(f"VAT Included {vat_percent:g}%", f"AED {vat_amount:.2f}"))
+        else:
+            vat_amount = max(0, total - max(0, subtotal - discount))
+            lines.append(lr(f"VAT {vat_percent:g}%", f"AED {vat_amount:.2f}"))
+
+    lines += [
+        "=" * width,
+        lr("TOTAL", f"AED {total:.2f}"),
+        "=" * width,
+        lr(str(o.payment_method or "PAYMENT").upper(), f"AED {total:.2f}"),
+        "-" * width,
+    ]
+
+    if footer:
+        for part in str(footer).split("\n"):
+            if part.strip():
+                lines.append(center(part.strip()))
+
+    lines.append(center("Thank You - Visit Again"))
+    return lines
+
+
+def receipt_logo_data(db):
+    return get_setting(db, "receipt_logo", "")
+
 def enqueue_print_job(db, order=None, kind="kitchen", lines=None):
     printer_ip = get_setting(db, "printer_ip", "").strip()
     printer_port = int(get_setting(db, "printer_port", "9100") or 9100)
@@ -458,6 +571,8 @@ def enqueue_print_job(db, order=None, kind="kitchen", lines=None):
         "port": printer_port,
         "lines": lines or [],
         "cut": True,
+        "logo_data_url": receipt_logo_data(db) if kind == "receipt" else "",
+        "receipt_style": "professional" if kind == "receipt" else "kitchen",
     }
 
     job = PrintJob(
@@ -736,6 +851,12 @@ class OrderIn(BaseModel):
     notes: str = ""
     hold: bool = False
 
+
+
+class PendingPayIn(BaseModel):
+    payment_method: str
+    cash_paid: Optional[float] = None
+    card_paid: Optional[float] = None
 
 class PrintFailIn(BaseModel):
     error: str = ""
@@ -1707,10 +1828,18 @@ def add_order(x: OrderIn):
             table.status = "occupied"
     db.flush()
 
-    # Central print queue: every device sends printing through the backend.
-    # Held orders always go to kitchen. Normal orders print when Admin Auto Print is ON.
-    if x.hold or flag(db, "auto_print", False):
+    # Central print queue:
+    # SEND TO KITCHEN => kitchen slip.
+    # Direct paid order => professional customer receipt when Auto Print is ON.
+    if x.hold:
         enqueue_print_job(db, o, kind="kitchen")
+    elif flag(db, "auto_print", False):
+        enqueue_print_job(
+            db,
+            o,
+            kind="receipt",
+            lines=receipt_print_lines(db, o)
+        )
 
     if not x.hold:
         stock_apply_for_order(db, o, direction=-1)
@@ -2237,6 +2366,105 @@ def day_parts_report(business_date: Optional[str] = None):
 
 
 
+
+
+@app.get("/orders/pending-payment")
+def pending_payment_orders():
+    db = db_session()
+    rows = (
+        db.query(Order)
+        .filter(Order.status == "held")
+        .order_by(Order.id.desc())
+        .all()
+    )
+    out = []
+    for o in rows:
+        d = order_to_dict(db, o)
+        d["payment_status"] = "pending"
+        out.append(d)
+    db.close()
+    return out
+
+
+@app.post("/orders/{order_id}/pay")
+def pay_pending_order(order_id: int, x: PendingPayIn):
+    db = db_session()
+    o = db.query(Order).filter(Order.id == order_id).first()
+
+    if not o:
+        db.close()
+        raise HTTPException(404, "Order not found")
+
+    if o.status != "held":
+        db.close()
+        raise HTTPException(400, "Order is not pending payment")
+
+    method = (x.payment_method or "").lower().strip()
+
+    if method not in {"cash", "card", "split"}:
+        db.close()
+        raise HTTPException(400, "Invalid payment method")
+
+    total = round(float(o.total or 0), 2)
+
+    if method == "cash":
+        o.cash_paid = total
+        o.card_paid = 0
+    elif method == "card":
+        o.cash_paid = 0
+        o.card_paid = total
+    else:
+        cash_paid = round(float(x.cash_paid or 0), 2)
+        card_paid = round(float(x.card_paid or 0), 2)
+        if abs((cash_paid + card_paid) - total) > 0.01:
+            db.close()
+            raise HTTPException(400, "Cash + Card must equal order total")
+        o.cash_paid = cash_paid
+        o.card_paid = card_paid
+
+    o.payment_method = method
+    o.status = "paid"
+
+    stock_apply_for_order(db, o, direction=-1)
+
+    # Payment completed: print professional customer receipt.
+    if flag(db, "auto_print", False):
+        enqueue_print_job(
+            db,
+            o,
+            kind="receipt",
+            lines=receipt_print_lines(db, o)
+        )
+
+    if o.shift_id:
+        shift = db.query(Shift).filter(Shift.id == o.shift_id).first()
+        if shift:
+            recalc_shift(db, shift)
+
+    log_action(
+        db,
+        "pay_pending_order",
+        "order",
+        o.id,
+        actor=o.waiter_id,
+        details=f"Payment {method}"
+    )
+
+    db.commit()
+    out = order_to_dict(db, o)
+    db.close()
+    return out
+
+
+@app.post("/sync/menu")
+def sync_menu():
+    return {
+        "ok": True,
+        "synced_at": datetime.utcnow().isoformat(),
+        "message": "Menu synced from server"
+    }
+
+
 # CENTRAL PRINT QUEUE
 @app.get("/print-queue/next")
 def print_queue_next():
@@ -2319,18 +2547,49 @@ def print_queue_test():
         db.close()
         raise HTTPException(400, "Save Printer IP first")
 
+    shop = get_setting(db, "shop_name", "MAHI POS")
+    phone = get_setting(db, "shop_phone", "")
+    address = get_setting(db, "shop_address", "")
+    footer = get_setting(db, "receipt_footer", "Thank you! Visit Again")
+    width = 42
+
+    def center(s):
+        return str(s or "").center(width)[:width]
+
+    def lr(left, right):
+        left, right = str(left), str(right)
+        room = max(1, width-len(right))
+        return (left[:room].ljust(room)+right)[:width]
+
+    lines = [center(shop)]
+    if address:
+        lines.append(center(address))
+    if phone:
+        lines.append(center(phone))
+    lines += [
+        "-"*width,
+        lr("Receipt #: TEST", datetime.utcnow().strftime("%d/%m/%Y")),
+        lr("Employee", "ADMIN"),
+        "-"*width,
+        lr("MAHI POS TEST ITEM", "AED 10.00"),
+        "1 x AED 10.00",
+        "-"*width,
+        lr("Subtotal", "AED 10.00"),
+        lr("VAT Included 5%", "AED 0.48"),
+        "="*width,
+        lr("TOTAL", "AED 10.00"),
+        "="*width,
+        lr("CASH", "AED 10.00"),
+        "-"*width,
+        center(footer),
+        center("Thank You - Visit Again"),
+    ]
+
     job = enqueue_print_job(
         db,
         order=None,
-        kind="test",
-        lines=[
-            get_setting(db, "shop_name", "MAHI POS"),
-            "PRINTER TEST",
-            "--------------------------------",
-            "Central Print Bridge is working",
-            datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
-            "--------------------------------",
-        ],
+        kind="receipt",
+        lines=lines,
     )
     db.commit()
     job_id = job.id if job else None

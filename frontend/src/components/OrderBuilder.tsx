@@ -523,29 +523,8 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
       setDeliveryAddress('')
       setCustomerId(undefined)
 
-      if(
-        settings?.printer_ip &&
-        (
-          hold ||
-          settings?.auto_print
-        )
-      ){
-        try{
-          const full:any=await api(
-            '/orders/'+created.id
-          )
-
-          await sendToIpPrinter(
-            full,
-            settings
-          )
-
-        }catch(e:any){
-          alert(
-            `Order saved but print failed: ${e.message}`
-          )
-        }
-      }
+      // Kitchen printing is queued by the backend.
+      // This works the same from Android, iPad, iPhone and Waiter.
 
       if(
         !hold &&
@@ -564,7 +543,7 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
 
       alert(
         hold
-          ?`Order #${created.id} held`
+          ?`Order #${created.id} held & sent to kitchen`
           :`Order #${created.id} saved`
       )
 

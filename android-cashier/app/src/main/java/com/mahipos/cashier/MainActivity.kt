@@ -2,6 +2,9 @@ package com.mahipos.cashier
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.util.Base64
+import android.graphics.BitmapFactory
+import android.graphics.Bitmap
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -34,7 +37,6 @@ class MainActivity : AppCompatActivity() {
     private var queueBusy = false
 
     companion object {
-
         private const val POS_URL =
             "https://mahi-shah-pos.suryausman313.workers.dev/"
 
@@ -45,11 +47,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val queuePoller = object : Runnable {
-
         override fun run() {
-
             pollPrintQueue()
-
             mainHandler.postDelayed(
                 this,
                 POLL_INTERVAL_MS
@@ -59,11 +58,9 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
-
         super.onCreate(savedInstanceState)
 
         webView = WebView(this)
-
         setContentView(webView)
 
         webView.settings.javaScriptEnabled = true
@@ -73,94 +70,63 @@ class MainActivity : AppCompatActivity() {
         webView.settings.allowContentAccess = true
         webView.settings.setSupportZoom(false)
 
-        webView.webChromeClient =
-            WebChromeClient()
+        webView.webChromeClient = WebChromeClient()
 
         webView.webViewClient =
             object : WebViewClient() {
-
                 override fun shouldOverrideUrlLoading(
                     view: WebView?,
                     request: WebResourceRequest?
                 ): Boolean {
-
                     return false
                 }
             }
 
         /*
-         * Direct Android printer + drawer bridge.
+         * Native bridge used by the Cashier web app for:
+         * - manual printer test/direct receipt
+         * - cash drawer pulse
          */
-
         webView.addJavascriptInterface(
             PrinterBridge(this),
             "AndroidPrinter"
         )
 
-        /*
-         * Open Cashier POS
-         */
-
         webView.loadUrl(POS_URL)
 
         /*
-         * Start central kitchen printer queue.
+         * Cashier Android device is now the permanent
+         * central kitchen print bridge.
          *
-         * iPad
-         * iPhone
-         * Waiter
-         * Cashier
-         *
-         *      ↓
-         *
-         * Render Backend
-         *
-         *      ↓
-         *
-         * This Android Cashier device
-         *
-         *      ↓
-         *
-         * Kitchen Printer
+         * Android / iPad / iPhone / Waiter
+         *      -> Backend Print Queue
+         *      -> THIS Cashier Android device
+         *      -> Kitchen printer
          */
-
         mainHandler.post(queuePoller)
     }
 
     override fun onDestroy() {
-
-        mainHandler.removeCallbacks(
-            queuePoller
-        )
-
+        mainHandler.removeCallbacks(queuePoller)
         printExecutor.shutdownNow()
-
         super.onDestroy()
     }
 
-    @Deprecated(
-        "Deprecated in Java"
-    )
     override fun onBackPressed() {
-
         if (webView.canGoBack()) {
-
             webView.goBack()
-
         } else {
-
             super.onBackPressed()
         }
     }
 
     /*
-     * =====================================================
-     * CENTRAL PRINT QUEUE
-     * =====================================================
+     * ============================================================
+     * CENTRAL BACKEND PRINT QUEUE
+     * ============================================================
      */
 
     private fun pollPrintQueue() {
-
         if (queueBusy) {
             return
         }
@@ -168,81 +134,49 @@ class MainActivity : AppCompatActivity() {
         queueBusy = true
 
         printExecutor.execute {
-
             try {
+                val response = httpJson(
+                    "$BACKEND_URL/print-queue/next",
+                    "GET",
+                    null
+                )
 
-                val response =
-                    httpJson(
-                        "$BACKEND_URL/print-queue/next",
-                        "GET",
-                        null
-                    )
-
-                val job =
-                    response.optJSONObject(
-                        "job"
-                    )
+                val job = response.optJSONObject("job")
 
                 if (job != null) {
-
                     processPrintJob(job)
                 }
 
             } catch (_: Exception) {
-
                 /*
-                 * Backend may temporarily be
-                 * sleeping/restarting.
-                 *
-                 * Next poll retries automatically.
+                 * Backend may briefly sleep/restart.
+                 * Next poll will retry automatically.
                  */
             } finally {
-
                 queueBusy = false
             }
         }
     }
 
-    private fun processPrintJob(
-        job: JSONObject
-    ) {
-
-        val jobId =
-            job.optInt(
-                "id",
-                0
-            )
+    private fun processPrintJob(job: JSONObject) {
+        val jobId = job.optInt("id", 0)
 
         if (jobId <= 0) {
             return
         }
 
         try {
-
-            val ip =
-                job
-                    .optString("ip")
-                    .trim()
-
-            val port =
-                job.optInt(
-                    "port",
-                    9100
-                )
-
-            val cut =
-                job.optBoolean(
-                    "cut",
-                    true
-                )
-
+            val ip = job.optString("ip").trim()
+            val port = job.optInt("port", 9100)
+            val cut = job.optBoolean("cut", true)
             val lines =
-                job.optJSONArray(
-                    "lines"
-                ) ?: JSONArray()
+                job.optJSONArray("lines")
+                    ?: JSONArray()
+
+            val logoDataUrl =
+                job.optString("logo_data_url", "")
 
             if (ip.isBlank()) {
-
                 throw Exception(
                     "Printer IP missing in print job"
                 )
@@ -251,7 +185,8 @@ class MainActivity : AppCompatActivity() {
             val bytes =
                 buildEscPos(
                     lines,
-                    cut
+                    cut,
+                    logoDataUrl
                 )
 
             sendRaw(
@@ -259,11 +194,6 @@ class MainActivity : AppCompatActivity() {
                 port,
                 bytes
             )
-
-            /*
-             * Tell backend:
-             * print completed.
-             */
 
             httpJson(
                 "$BACKEND_URL/print-queue/$jobId/done",
@@ -277,19 +207,10 @@ class MainActivity : AppCompatActivity() {
                 e.message
                     ?: e.javaClass.simpleName
 
-            /*
-             * Tell backend:
-             * print failed.
-             */
-
             try {
-
                 val body =
                     JSONObject()
-                        .put(
-                            "error",
-                            error
-                        )
+                        .put("error", error)
                         .toString()
 
                 httpJson(
@@ -303,12 +224,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /*
-     * =====================================================
-     * BACKEND HTTP
-     * =====================================================
-     */
-
     private fun httpJson(
         urlText: String,
         method: String,
@@ -321,32 +236,22 @@ class MainActivity : AppCompatActivity() {
                     as HttpURLConnection
 
         try {
-
-            connection.requestMethod =
-                method
-
-            connection.connectTimeout =
-                10000
-
-            connection.readTimeout =
-                10000
-
+            connection.requestMethod = method
+            connection.connectTimeout = 10000
+            connection.readTimeout = 10000
             connection.setRequestProperty(
                 "Accept",
                 "application/json"
             )
 
             if (body != null) {
-
                 connection.doOutput = true
-
                 connection.setRequestProperty(
                     "Content-Type",
                     "application/json"
                 )
 
                 connection.outputStream.use {
-
                     it.write(
                         body.toByteArray(
                             Charsets.UTF_8
@@ -359,44 +264,31 @@ class MainActivity : AppCompatActivity() {
                 connection.responseCode
 
             val stream =
-                if (
-                    code in 200..299
-                ) {
-
+                if (code in 200..299) {
                     connection.inputStream
-
                 } else {
-
                     connection.errorStream
                 }
 
             val text =
                 if (stream != null) {
-
                     BufferedReader(
                         InputStreamReader(
                             stream,
                             Charsets.UTF_8
                         )
                     ).use {
-
                         it.readText()
                     }
-
                 } else {
-
                     ""
                 }
 
-            if (
-                code !in 200..299
-            ) {
-
+            if (code !in 200..299) {
                 var message =
                     "HTTP $code"
 
                 try {
-
                     val json =
                         JSONObject(text)
 
@@ -405,43 +297,32 @@ class MainActivity : AppCompatActivity() {
                             "detail",
                             message
                         )
-
                 } catch (_: Exception) {
                 }
 
                 throw Exception(message)
             }
 
-            return if (
-                text.isBlank()
-            ) {
-
+            return if (text.isBlank()) {
                 JSONObject()
-
             } else {
-
                 JSONObject(text)
             }
 
         } finally {
-
             connection.disconnect()
         }
     }
 
     /*
-     * =====================================================
-     * JAVASCRIPT → ANDROID
-     * =====================================================
+     * ============================================================
+     * JAVASCRIPT -> ANDROID NATIVE PRINTER / DRAWER
+     * ============================================================
      */
 
     inner class PrinterBridge(
         private val context: Context
     ) {
-
-        /*
-         * DIRECT RECEIPT PRINT
-         */
 
         @JavascriptInterface
         fun printReceipt(
@@ -449,11 +330,8 @@ class MainActivity : AppCompatActivity() {
         ): String {
 
             return try {
-
                 val data =
-                    JSONObject(
-                        jsonPayload
-                    )
+                    JSONObject(jsonPayload)
 
                 val ip =
                     data
@@ -473,17 +351,15 @@ class MainActivity : AppCompatActivity() {
                     )
 
                 val lines =
-                    data.optJSONArray(
-                        "lines"
-                    ) ?: JSONArray()
+                    data.optJSONArray("lines")
+                        ?: JSONArray()
+
+                val logoDataUrl =
+                    data.optString("logo_data_url", "")
 
                 if (ip.isBlank()) {
-
                     return JSONObject()
-                        .put(
-                            "ok",
-                            false
-                        )
+                        .put("ok", false)
                         .put(
                             "error",
                             "Printer IP is empty"
@@ -494,7 +370,8 @@ class MainActivity : AppCompatActivity() {
                 val bytes =
                     buildEscPos(
                         lines,
-                        cut
+                        cut,
+                        logoDataUrl
                     )
 
                 sendRaw(
@@ -504,27 +381,15 @@ class MainActivity : AppCompatActivity() {
                 )
 
                 JSONObject()
-                    .put(
-                        "ok",
-                        true
-                    )
-                    .put(
-                        "ip",
-                        ip
-                    )
-                    .put(
-                        "port",
-                        port
-                    )
+                    .put("ok", true)
+                    .put("ip", ip)
+                    .put("port", port)
                     .toString()
 
             } catch (e: Exception) {
 
                 JSONObject()
-                    .put(
-                        "ok",
-                        false
-                    )
+                    .put("ok", false)
                     .put(
                         "error",
                         e.message
@@ -535,20 +400,17 @@ class MainActivity : AppCompatActivity() {
         }
 
         /*
-         * CASH DRAWER OPEN
+         * Standard ESC/POS cash drawer pulse.
+         * Drawer must be connected to the thermal printer.
          */
-
         @JavascriptInterface
         fun openDrawer(
             jsonPayload: String
         ): String {
 
             return try {
-
                 val data =
-                    JSONObject(
-                        jsonPayload
-                    )
+                    JSONObject(jsonPayload)
 
                 val ip =
                     data
@@ -562,12 +424,8 @@ class MainActivity : AppCompatActivity() {
                     )
 
                 if (ip.isBlank()) {
-
                     return JSONObject()
-                        .put(
-                            "ok",
-                            false
-                        )
+                        .put("ok", false)
                         .put(
                             "error",
                             "Printer IP is empty"
@@ -576,12 +434,11 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 /*
-                 * ESC/POS Drawer Pulse
+                 * ESC p m t1 t2
+                 * Pulse drawer pin 2.
                  */
-
                 val pulse =
                     byteArrayOf(
-
                         0x1B.toByte(),
                         0x70.toByte(),
                         0x00.toByte(),
@@ -596,19 +453,13 @@ class MainActivity : AppCompatActivity() {
                 )
 
                 JSONObject()
-                    .put(
-                        "ok",
-                        true
-                    )
+                    .put("ok", true)
                     .toString()
 
             } catch (e: Exception) {
 
                 JSONObject()
-                    .put(
-                        "ok",
-                        false
-                    )
+                    .put("ok", false)
                     .put(
                         "error",
                         e.message
@@ -620,14 +471,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     /*
-     * =====================================================
-     * ESC/POS RECEIPT
-     * =====================================================
+     * ============================================================
+     * ESC/POS
+     * ============================================================
      */
 
     private fun buildEscPos(
         lines: JSONArray,
-        cut: Boolean
+        cut: Boolean,
+        logoDataUrl: String = ""
     ): ByteArray {
 
         val out =
@@ -636,9 +488,7 @@ class MainActivity : AppCompatActivity() {
         fun add(
             vararg bytes: Int
         ) {
-
             bytes.forEach {
-
                 out.add(
                     it.toByte()
                 )
@@ -648,7 +498,6 @@ class MainActivity : AppCompatActivity() {
         fun addText(
             text: String
         ) {
-
             text
                 .toByteArray(
                     Charset.forName(
@@ -656,19 +505,30 @@ class MainActivity : AppCompatActivity() {
                     )
                 )
                 .forEach {
-
                     out.add(it)
                 }
         }
 
         /*
-         * Printer initialize
+         * Initialize
          */
-
         add(
             0x1B,
             0x40
         )
+
+        if (logoDataUrl.isNotBlank()) {
+            try {
+                val bitmap = decodeLogoBitmap(logoDataUrl)
+                if (bitmap != null) {
+                    add(0x1B, 0x61, 0x01)
+                    bitmapToEscPos(bitmap).forEach { out.add(it) }
+                    addText("\n")
+                    add(0x1B, 0x61, 0x00)
+                }
+            } catch (_: Exception) {
+            }
+        }
 
         for (
             i in
@@ -683,9 +543,9 @@ class MainActivity : AppCompatActivity() {
 
             /*
              * First line:
-             * centered + bold + large
+             * centered + bold +
+             * double size.
              */
-
             if (i == 0) {
 
                 add(
@@ -707,12 +567,7 @@ class MainActivity : AppCompatActivity() {
                 )
 
                 addText(line)
-
                 addText("\n")
-
-                /*
-                 * Reset text size
-                 */
 
                 add(
                     0x1D,
@@ -720,19 +575,11 @@ class MainActivity : AppCompatActivity() {
                     0x00
                 )
 
-                /*
-                 * Bold OFF
-                 */
-
                 add(
                     0x1B,
                     0x45,
                     0x00
                 )
-
-                /*
-                 * Left align
-                 */
 
                 add(
                     0x1B,
@@ -743,25 +590,15 @@ class MainActivity : AppCompatActivity() {
             } else {
 
                 addText(line)
-
                 addText("\n")
             }
         }
-
-        /*
-         * Feed paper
-         */
 
         addText(
             "\n\n\n"
         )
 
-        /*
-         * Auto cut
-         */
-
         if (cut) {
-
             add(
                 0x1D,
                 0x56,
@@ -773,10 +610,122 @@ class MainActivity : AppCompatActivity() {
     }
 
     /*
-     * =====================================================
-     * RAW LAN PRINTER CONNECTION
-     * =====================================================
+     * ============================================================
+     * RAW LAN SOCKET -> THERMAL PRINTER
+     * ============================================================
      */
+
+
+    private fun decodeLogoBitmap(
+        dataUrl: String
+    ): Bitmap? {
+        val base64 =
+            if (dataUrl.contains(",")) {
+                dataUrl.substringAfter(",")
+            } else {
+                dataUrl
+            }
+
+        val bytes =
+            Base64.decode(
+                base64,
+                Base64.DEFAULT
+            )
+
+        return BitmapFactory.decodeByteArray(
+            bytes,
+            0,
+            bytes.size
+        )
+    }
+
+    private fun bitmapToEscPos(
+        source: Bitmap
+    ): ByteArray {
+        val maxWidth = 384
+
+        val bitmap =
+            if (source.width > maxWidth) {
+                val ratio =
+                    maxWidth.toFloat() /
+                    source.width.toFloat()
+
+                Bitmap.createScaledBitmap(
+                    source,
+                    maxWidth,
+                    (source.height * ratio)
+                        .toInt()
+                        .coerceAtLeast(1),
+                    true
+                )
+            } else {
+                source
+            }
+
+        val width = bitmap.width
+        val height = bitmap.height
+        val widthBytes = (width + 7) / 8
+
+        val data =
+            ByteArray(
+                widthBytes * height
+            )
+
+        var index = 0
+
+        for (y in 0 until height) {
+            for (xb in 0 until widthBytes) {
+                var value = 0
+
+                for (bit in 0 until 8) {
+                    val x = xb * 8 + bit
+
+                    if (x < width) {
+                        val pixel =
+                            bitmap.getPixel(
+                                x,
+                                y
+                            )
+
+                        val r =
+                            (pixel shr 16) and 0xff
+                        val g =
+                            (pixel shr 8) and 0xff
+                        val b =
+                            pixel and 0xff
+
+                        val gray =
+                            (r * 0.299 +
+                             g * 0.587 +
+                             b * 0.114)
+
+                        if (gray < 160) {
+                            value =
+                                value or
+                                (0x80 shr bit)
+                        }
+                    }
+                }
+
+                data[index++] =
+                    value.toByte()
+            }
+        }
+
+        val header =
+            byteArrayOf(
+                0x1D,
+                0x76,
+                0x30,
+                0x00,
+                (widthBytes and 0xff).toByte(),
+                ((widthBytes shr 8) and 0xff).toByte(),
+                (height and 0xff).toByte(),
+                ((height shr 8) and 0xff).toByte()
+            )
+
+        return header + data
+    }
 
     private fun sendRaw(
         ip: String,
@@ -788,7 +737,6 @@ class MainActivity : AppCompatActivity() {
             Socket()
 
         try {
-
             socket.connect(
                 InetSocketAddress(
                     ip,
@@ -802,21 +750,18 @@ class MainActivity : AppCompatActivity() {
 
             val output =
                 BufferedOutputStream(
-                    socket.getOutputStream()
+                    socket
+                        .getOutputStream()
                 )
 
             output.write(data)
-
             output.flush()
-
             output.close()
 
         } finally {
 
             try {
-
                 socket.close()
-
             } catch (_: Exception) {
             }
         }

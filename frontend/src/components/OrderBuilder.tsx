@@ -16,12 +16,11 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
   const [customers,setCustomers]=useState<Customer[]>([])
   const [settings,setSettings]=useState<Settings|null>(null)
   const [shift,setShift]=useState<Shift|null>(null)
-  const [held,setHeld]=useState<any[]>([])
+  const [pending,setPending]=useState<any[]>([])
   const [cart,setCart]=useState<Record<number,number>>({})
   const [mods,setMods]=useState<Record<number,number[]>>({})
   const [category,setCategory]=useState('')
   const [search,setSearch]=useState('')
-  const [barcode,setBarcode]=useState('')
   const [type,setType]=useState('takeaway')
   const [pay,setPay]=useState('cash')
   const [discount,setDiscount]=useState(0)
@@ -37,18 +36,23 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
   const [cashierMenuOpen,setCashierMenuOpen]=useState(false)
   const [toolsOpen,setToolsOpen]=useState(false)
   const [closingReport,setClosingReport]=useState<any>(null)
+  const [shiftOpenModal,setShiftOpenModal]=useState(false)
+  const [openingCashInput,setOpeningCashInput]=useState('0')
+  const [shiftCloseModal,setShiftCloseModal]=useState(false)
+  const [actualCashInput,setActualCashInput]=useState('')
+  const [managerPinInput,setManagerPinInput]=useState('')
   const [sizePicker,setSizePicker]=useState<MenuItem|null>(null)
   const [selectedSizes,setSelectedSizes]=useState<Record<number,{id:number;name:string;price_delta:number}>>({})
 
   const load=async()=>{
-    const [m,t,s,c,st,sh,h]=await Promise.all([
+    const [m,t,s,c,st,sh,p]=await Promise.all([
       api<MenuItem[]>('/menu'),
       api<PosTable[]>('/tables'),
       api<Staff[]>('/staff'),
       api<Customer[]>('/customers'),
       api<Settings>('/settings'),
       api<Shift|null>('/shifts/current'),
-      api<any[]>('/orders/held/list')
+      api<any[]>('/orders/pending-payment')
     ])
 
     setMenu(m)
@@ -57,7 +61,7 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
     setCustomers(c)
     setSettings(st)
     setShift(sh)
-    setHeld(h)
+    setPending(p)
 
     if(isWaiter&&loggedUser?.id){
       setWaiterId(loggedUser.id)
@@ -203,21 +207,6 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
     })
   }
 
-  const scan=async()=>{
-    if(!barcode.trim())return
-
-    try{
-      const item:any=await api(
-        '/menu/barcode/'+
-        encodeURIComponent(barcode.trim())
-      )
-
-      if(item.sizes?.length){
-        setSizePicker(item)
-      }else{
-        qty(item.id,1)
-      }
-
       setBarcode('')
     }catch(e:any){
       alert(e.message)
@@ -225,31 +214,26 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
   }
 
   const openShift=async()=>{
-    const opening=prompt(
-      'Opening cash AED',
-      '0'
-    )
+    setOpeningCashInput('0')
+    setShiftOpenModal(true)
+  }
 
-    if(opening===null)return
-
+  const confirmOpenShift=async()=>{
     try{
       const s:any=await api(
         '/shifts/open',
         {
           method:'POST',
-          headers:{
-            'Content-Type':'application/json'
-          },
+          headers:{'Content-Type':'application/json'},
           body:JSON.stringify({
-            opening_cash:+opening||0,
+            opening_cash:+openingCashInput||0,
             staff_id:loggedUser?.id||null
           })
         }
       )
-
+      setShiftOpenModal(false)
       await load()
       alert('Shift opened #'+s.id)
-
     }catch(e:any){
       alert(e.message)
     }
@@ -257,38 +241,35 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
 
   const closeShift=async()=>{
     if(!shift)return
+    setActualCashInput(String(shift.expected_cash||0))
+    setManagerPinInput('')
+    setShiftCloseModal(true)
+  }
 
-    const actual=prompt(
-      `Expected cash AED ${shift.expected_cash}\nEnter actual cash in drawer:`
-    )
-
-    if(actual===null)return
-
-    const pin=prompt(
-      'Manager/Admin PIN'
-    )
-
-    if(!pin)return
+  const confirmCloseShift=async()=>{
+    if(!shift)return
+    if(!managerPinInput.trim()){
+      alert('Enter Admin / Manager PIN')
+      return
+    }
 
     try{
       const r:any=await api(
         `/shifts/${shift.id}/close`,
         {
           method:'POST',
-          headers:{
-            'Content-Type':'application/json'
-          },
+          headers:{'Content-Type':'application/json'},
           body:JSON.stringify({
-            actual_cash:+actual||0,
-            staff_pin:pin
+            actual_cash:+actualCashInput||0,
+            staff_pin:managerPinInput
           })
         }
       )
 
+      setShiftCloseModal(false)
       setClosingReport(r)
       setCashierMenuOpen(false)
       await load()
-
     }catch(e:any){
       alert(e.message)
     }
@@ -382,6 +363,16 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
       await openCashDrawer(settings)
       alert('Cash drawer opened')
 
+    }catch(e:any){
+      alert(e.message)
+    }
+  }
+
+  const syncMenu=async()=>{
+    try{
+      await api('/sync/menu',{method:'POST'})
+      await load()
+      alert('Menu synced')
     }catch(e:any){
       alert(e.message)
     }
@@ -543,7 +534,7 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
 
       alert(
         hold
-          ?`Order #${created.id} held & sent to kitchen`
+          ?`Order #${created.id} sent to kitchen · payment pending`
           :`Order #${created.id} saved`
       )
 
@@ -554,6 +545,49 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
 
     }finally{
       setSaving(false)
+    }
+  }
+
+  const payPending=async(order:any)=>{
+    const method=(prompt('Payment method: cash / card / split','cash')||'').toLowerCase().trim()
+    if(!['cash','card','split'].includes(method))return
+
+    let cash_paid:number|undefined
+    let card_paid:number|undefined
+
+    if(method==='split'){
+      const c=prompt('Cash amount AED')
+      if(c===null)return
+      const k=prompt('Card amount AED')
+      if(k===null)return
+      cash_paid=+c||0
+      card_paid=+k||0
+    }
+
+    try{
+      await api(`/orders/${order.id}/pay`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          payment_method:method,
+          cash_paid,
+          card_paid
+        })
+      })
+
+      if(method==='cash'&&settings?.auto_cash_drawer!==false&&settings){
+        try{
+          await openCashDrawer(settings)
+        }catch(e:any){
+          console.warn('Drawer:',e.message)
+        }
+      }
+
+      await load()
+      alert(`Order #${order.id} payment completed`)
+      setCashierMenuOpen(false)
+    }catch(e:any){
+      alert(e.message)
     }
   }
 
@@ -603,6 +637,24 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
     }catch(e:any){
       alert(e.message)
     }
+  }
+
+  if(
+    isCashier &&
+    settings?.require_shift &&
+    !shift
+  ){
+    return (
+      <div className="shift-opening-gate">
+        <div className="shift-opening-card">
+          <small>MAHI POS</small>
+          <h1>Open Shift</h1>
+          <p>Open the cash drawer shift before starting sales.</p>
+          <button onClick={openShift}>OPEN SHIFT</button>
+          <button className="shift-gate-logout" onClick={logout}>LOG OUT</button>
+        </div>
+      </div>
+    )
   }
 
   if(settings?.app_enabled===false){
@@ -669,6 +721,13 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
                   :'Shift Closed'}
               </span>
             </div>
+
+            <button
+              className={`pending-top-btn ${pending.length?'has-pending':''}`}
+              onClick={()=>setCashierMenuOpen(true)}
+            >
+              PENDING PAYMENT {pending.length?`(${pending.length})`:''}
+            </button>
 
             <div className="cashier-clock">
               {new Date().toLocaleDateString('en-GB')}
@@ -759,26 +818,7 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
             />
           )}
 
-          {!cashierCompact&&(
-            <div className="barcode-box">
-
-              <input
-                placeholder="Barcode"
-                value={barcode}
-                onChange={e=>
-                  setBarcode(e.target.value)
-                }
-                onKeyDown={e=>
-                  e.key==='Enter'&&scan()
-                }
-              />
-
-              <button onClick={scan}>
-                Scan
-              </button>
-
-            </div>
-          )}
+          
 
           {isWaiter?(
             <div className="staff-fixed-pill">
@@ -828,35 +868,12 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
 
         {cashierCompact&&toolsOpen&&(
           <div className="cashier-tools-panel">
-
             <input
               className="search-box"
               placeholder="Search menu..."
               value={search}
-              onChange={e=>
-                setSearch(e.target.value)
-              }
+              onChange={e=>setSearch(e.target.value)}
             />
-
-            <div className="barcode-box">
-
-              <input
-                placeholder="Barcode"
-                value={barcode}
-                onChange={e=>
-                  setBarcode(e.target.value)
-                }
-                onKeyDown={e=>
-                  e.key==='Enter'&&scan()
-                }
-              />
-
-              <button onClick={scan}>
-                Scan
-              </button>
-
-            </div>
-
           </div>
         )}
 
@@ -1134,33 +1151,7 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
             </>
           )}
 
-          {settings?.allow_discounts!==false&&(
-            <label>
-
-              <span>
-                Discount
-              </span>
-
-              <div className="money-input">
-
-                <span>
-                  AED
-                </span>
-
-                <input
-                  type="number"
-                  value={discount}
-                  onChange={e=>
-                    setDiscount(
-                      +e.target.value||0
-                    )
-                  }
-                />
-
-              </div>
-
-            </label>
-          )}
+          
 
           <div className="summary-row">
 
@@ -1225,7 +1216,7 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
                   }
                   disabled={saving}
                 >
-                  HOLD & SEND TO KITCHEN
+                  SEND TO KITCHEN
                 </button>
               )}
 
@@ -1399,6 +1390,17 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
                 </>
               )}
 
+              {settings?.allow_discounts!==false&&(
+                <button
+                  onClick={()=>{
+                    const value=prompt('Discount AED',String(discount||0))
+                    if(value!==null)setDiscount(Math.max(0,+value||0))
+                  }}
+                >
+                  % Discount {discount>0?`· AED ${discount.toFixed(2)}`:''}
+                </button>
+              )}
+
               <button
                 onClick={addExpenseQuick}
               >
@@ -1419,32 +1421,37 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
                   setToolsOpen(true)
                 }}
               >
-                ⌕ Search / Barcode
+                ⌕ Search Menu
               </button>
 
-              {held.length>0&&(
+              {pending.length>0&&(
                 <div className="drawer-held">
 
                   <b>
-                    Held Orders ({held.length})
+                    Pending Payment ({pending.length})
                   </b>
 
-                  {held.slice(0,8).map(h=>(
-                    <div className="held-order-actions" key={h.id}>
+                  {pending.slice(0,8).map(h=>(
+                    <div className="held-order-actions pending-order-actions" key={h.id}>
+                      <button
+                        className="pending-pay-btn"
+                        onClick={()=>payPending(h)}
+                      >
+                        PAY #{h.id} · {money(h.total)}
+                      </button>
+
                       <button
                         onClick={()=>{
                           recall(h.id)
                           setCashierMenuOpen(false)
                         }}
                       >
-                        Recall #{h.id} · {money(h.total)}
+                        Edit
                       </button>
 
                       <button
                         className="held-cancel-btn"
-                        onClick={()=>
-                          cancelHeld(h.id)
-                        }
+                        onClick={()=>cancelHeld(h.id)}
                       >
                         Cancel
                       </button>
@@ -1461,6 +1468,10 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
               <small>
                 DEVICE
               </small>
+
+              <button onClick={syncMenu}>
+                ↻ Sync Menu
+              </button>
 
               <button
                 onClick={manualDrawer}
@@ -1560,6 +1571,84 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
 
           </div>
 
+        </div>
+      )}
+
+      {shiftOpenModal&&(
+        <div className="pos-big-modal-backdrop">
+          <div className="pos-big-modal">
+            <div className="pos-big-modal-head">
+              <div>
+                <small>SHIFT CONTROL</small>
+                <h2>Open Shift</h2>
+              </div>
+              <button onClick={()=>setShiftOpenModal(false)}>×</button>
+            </div>
+
+            <label className="pos-big-field">
+              <span>Starting Cash</span>
+              <div className="pos-big-money-input">
+                <b>AED</b>
+                <input
+                  autoFocus
+                  inputMode="decimal"
+                  value={openingCashInput}
+                  onChange={e=>setOpeningCashInput(e.target.value)}
+                />
+              </div>
+            </label>
+
+            <button className="pos-big-primary" onClick={confirmOpenShift}>
+              OPEN SHIFT
+            </button>
+          </div>
+        </div>
+      )}
+
+      {shiftCloseModal&&shift&&(
+        <div className="pos-big-modal-backdrop">
+          <div className="pos-big-modal">
+            <div className="pos-big-modal-head">
+              <div>
+                <small>SHIFT CONTROL</small>
+                <h2>Close Shift</h2>
+              </div>
+              <button onClick={()=>setShiftCloseModal(false)}>×</button>
+            </div>
+
+            <div className="pos-expected-cash">
+              <span>Expected Cash</span>
+              <strong>{money(shift.expected_cash)}</strong>
+            </div>
+
+            <label className="pos-big-field">
+              <span>Actual Cash in Drawer</span>
+              <div className="pos-big-money-input">
+                <b>AED</b>
+                <input
+                  autoFocus
+                  inputMode="decimal"
+                  value={actualCashInput}
+                  onChange={e=>setActualCashInput(e.target.value)}
+                />
+              </div>
+            </label>
+
+            <label className="pos-big-field">
+              <span>Admin / Manager PIN</span>
+              <input
+                className="pos-big-pin"
+                type="password"
+                inputMode="numeric"
+                value={managerPinInput}
+                onChange={e=>setManagerPinInput(e.target.value)}
+              />
+            </label>
+
+            <button className="pos-big-primary pos-big-danger" onClick={confirmCloseShift}>
+              CLOSE SHIFT
+            </button>
+          </div>
         </div>
       )}
 

@@ -207,11 +207,6 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
     })
   }
 
-      setBarcode('')
-    }catch(e:any){
-      alert(e.message)
-    }
-  }
 
   const openShift=async()=>{
     setOpeningCashInput('0')

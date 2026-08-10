@@ -524,9 +524,11 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
       setCustomerId(undefined)
 
       if(
-        !hold &&
-        settings?.auto_print &&
-        settings?.printer_ip
+        settings?.printer_ip &&
+        (
+          hold ||
+          settings?.auto_print
+        )
       ){
         try{
           const full:any=await api(
@@ -573,6 +575,34 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
 
     }finally{
       setSaving(false)
+    }
+  }
+
+  const cancelHeld=async(id:number)=>{
+    const pin=prompt('Admin / Manager PIN')
+    if(!pin)return
+
+    const reason=prompt('Cancel reason')||'Held order cancelled'
+
+    try{
+      await api(
+        `/orders/${id}/void`,
+        {
+          method:'POST',
+          headers:{
+            'Content-Type':'application/json'
+          },
+          body:JSON.stringify({
+            manager_pin:pin,
+            reason
+          })
+        }
+      )
+
+      await load()
+      alert(`Held order #${id} cancelled`)
+    }catch(e:any){
+      alert(e.message)
     }
   }
 
@@ -1208,6 +1238,18 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
           {isCashier&&(
             <>
 
+              {settings?.allow_hold_orders!==false&&(
+                <button
+                  className="secondary-button hold-kitchen-button"
+                  onClick={()=>
+                    submit(true)
+                  }
+                  disabled={saving}
+                >
+                  HOLD & SEND TO KITCHEN
+                </button>
+              )}
+
               <div className="payment-switch">
 
                 {[
@@ -1273,19 +1315,8 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
               >
                 {saving
                   ?'Saving...'
-                  :`SAVE ORDER · ${money(total)}`}
+                  :`PAYMENT · ${money(total)}`}
               </button>
-
-              {settings?.allow_hold_orders!==false&&(
-                <button
-                  className="secondary-button"
-                  onClick={()=>
-                    submit(true)
-                  }
-                >
-                  HOLD ORDER
-                </button>
-              )}
 
             </>
           )}
@@ -1420,15 +1451,25 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
                   </b>
 
                   {held.slice(0,8).map(h=>(
-                    <button
-                      key={h.id}
-                      onClick={()=>{
-                        recall(h.id)
-                        setCashierMenuOpen(false)
-                      }}
-                    >
-                      Recall #{h.id} · {money(h.total)}
-                    </button>
+                    <div className="held-order-actions" key={h.id}>
+                      <button
+                        onClick={()=>{
+                          recall(h.id)
+                          setCashierMenuOpen(false)
+                        }}
+                      >
+                        Recall #{h.id} · {money(h.total)}
+                      </button>
+
+                      <button
+                        className="held-cancel-btn"
+                        onClick={()=>
+                          cancelHeld(h.id)
+                        }
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   ))}
 
                 </div>

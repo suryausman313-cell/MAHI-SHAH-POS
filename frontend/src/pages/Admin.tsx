@@ -82,6 +82,11 @@ function DayPartsSalesCard({settings,onSettingsChange,onSave}:{settings:any;onSe
 }
 
 export default function Admin(){
+ const vatInside=(price:number)=>{
+   if(settings?.vat_enabled===false||settings?.vat_inclusive===false)return 0
+   const rate=Number(settings?.vat_percent||5)
+   return price-(price/(1+rate/100))
+ }
  const[tab,setTab]=useState<Tab>('dashboard')
  const[report,setReport]=useState<any>({})
  const[menu,setMenu]=useState<MenuItem[]>([])
@@ -318,7 +323,7 @@ export default function Admin(){
     {tab==='menu'&&<>
       <div className="pro-page-head"><div><h2>Menu Management</h2><p>Products, categories, pricing and barcode</p></div></div>
       <div className="pro-form-card"><input placeholder="Item name" value={menuForm.name} onChange={e=>setMenuForm({...menuForm,name:e.target.value})}/><input placeholder="Category" value={menuForm.category} onChange={e=>setMenuForm({...menuForm,category:e.target.value})}/><input type="number" placeholder="Price" value={menuForm.price} onChange={e=>setMenuForm({...menuForm,price:e.target.value})}/><input placeholder="Barcode" value={menuForm.barcode} onChange={e=>setMenuForm({...menuForm,barcode:e.target.value})}/><button className="primary-btn" onClick={addMenu}>Add Item</button></div>
-      <div className="pro-product-grid">{menu.map(i=><article key={i.id}><div className="pro-product-icon">{i.image?<img src={i.image} alt={i.name}/>:i.name[0]}</div><div><small>{i.category}</small><strong>{i.name}</strong><b>{money(i.price)}</b><em>{i.barcode||'No barcode'}</em></div><div className="product-actions"><label className="image-upload-btn">Photo<input type="file" accept="image/*" onChange={e=>e.target.files?.[0]&&saveImage(i,e.target.files[0])}/></label><button onClick={()=>delMenu(i.id)}>Disable</button></div></article>)}</div>
+      <div className="pro-product-grid">{menu.map(i=><article key={i.id}><div className="pro-product-icon">{i.image?<img src={i.image} alt={i.name}/>:i.name[0]}</div><div><small>{i.category}</small><strong>{i.name}</strong><b>{money(i.price)}</b><em>{settings?.vat_enabled!==false&&settings?.vat_inclusive!==false?`VAT inside ${money(vatInside(i.price))}`:(i.barcode||'No barcode')}</em></div><div className="product-actions"><label className="image-upload-btn">Photo<input type="file" accept="image/*" onChange={e=>e.target.files?.[0]&&saveImage(i,e.target.files[0])}/></label><button onClick={()=>delMenu(i.id)}>Disable</button></div></article>)}</div>
     </>}
 
     {tab==='inventory'&&<>
@@ -356,7 +361,20 @@ export default function Admin(){
 
       <div className="pro-page-head"><div><h2>Reports</h2><p>Sales and payment performance</p></div></div>
       <div className="pro-report-hero"><div><span>Today's Net Sales</span><strong>{money(report.sales)}</strong><small>{report.orders||0} orders</small></div><div className="pay-breakdown"><div><span>Cash</span><b>{money(report.cash)}</b></div><div className="bar"><i style={{width:`${cashPct}%`}}/></div><div><span>Card</span><b>{money(report.card)}</b></div><div className="bar alt"><i style={{width:`${cardPct}%`}}/></div></div></div>
-      <div className="pro-stat-grid compact-stats"><Stat label="VAT" value={money(report.vat)} icon="%"/><Stat label="Discounts" value={money(report.discounts)} icon="−"/><Stat label="Refunds" value={money(report.refunds)} icon="↶"/><Stat label="After Expenses" value={money(report.net_after_expenses)} icon="◎"/></div>
+      
+      <div className="pro-card staff-sales-card">
+        <div className="pro-card-head"><div><h3>Sales by Staff</h3><p>Orders are tagged to the logged-in cashier/staff member</p></div></div>
+        {Object.values(orders.reduce((acc:any,o:any)=>{
+          const name=o.waiter||'Unknown'
+          if(!acc[name])acc[name]={name,total:0,orders:0,cash:0,card:0}
+          acc[name].total+=Number(o.total||0)-Number(o.refund_amount||0)
+          acc[name].orders+=1
+          acc[name].cash+=Number(o.cash_paid||0)
+          acc[name].card+=Number(o.card_paid||0)
+          return acc
+        },{})).map((x:any)=><div className="simple-row" key={x.name}><span><b>{x.name}</b><small>{x.orders} orders · Cash {money(x.cash)} · Card {money(x.card)}</small></span><b>{money(x.total)}</b></div>)}
+      </div>
+<div className="pro-stat-grid compact-stats"><Stat label="VAT" value={money(report.vat)} icon="%"/><Stat label="Discounts" value={money(report.discounts)} icon="−"/><Stat label="Refunds" value={money(report.refunds)} icon="↶"/><Stat label="After Expenses" value={money(report.net_after_expenses)} icon="◎"/></div>
     </>}
 
     {tab==='coupons'&&<>

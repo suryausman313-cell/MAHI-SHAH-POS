@@ -163,6 +163,14 @@ export default function Admin(){
    await api(`/staff/${s.id}/permissions`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({permissions:chosen})})
    await load()
  }
+ const manageSizes=async(item:any)=>{
+   const name=prompt(`Add size for ${item.name} (example: Small, Medium, Large)`)
+   if(!name)return
+   const finalPrice=prompt(`Final price for ${name}`,String(item.price))
+   if(finalPrice===null)return
+   await post('/sizes',{menu_item_id:item.id,name,price_delta:(+finalPrice||0)-Number(item.price),active:true})
+ }
+ const removeSize=async(id:number)=>{await api('/sizes/'+id,{method:'DELETE'});await load()}
  const addMenu=()=>post('/admin/menu',{...menuForm,price:+menuForm.price||0,sku:'',active:true}).then(()=>setMenuForm({name:'',category:'General',price:'',barcode:''}))
  const delMenu=async(id:number)=>{if(confirm('Disable this item?')){await api('/admin/menu/'+id,{method:'DELETE'});await load()}}
  const addInv=()=>post('/inventory',{...invForm,qty:+invForm.qty||0,min_qty:0,cost:0}).then(()=>setInvForm({name:'',unit:'pcs',qty:''}))
@@ -323,7 +331,7 @@ export default function Admin(){
     {tab==='menu'&&<>
       <div className="pro-page-head"><div><h2>Menu Management</h2><p>Products, categories, pricing and barcode</p></div></div>
       <div className="pro-form-card"><input placeholder="Item name" value={menuForm.name} onChange={e=>setMenuForm({...menuForm,name:e.target.value})}/><input placeholder="Category" value={menuForm.category} onChange={e=>setMenuForm({...menuForm,category:e.target.value})}/><input type="number" placeholder="Price" value={menuForm.price} onChange={e=>setMenuForm({...menuForm,price:e.target.value})}/><input placeholder="Barcode" value={menuForm.barcode} onChange={e=>setMenuForm({...menuForm,barcode:e.target.value})}/><button className="primary-btn" onClick={addMenu}>Add Item</button></div>
-      <div className="pro-product-grid">{menu.map(i=><article key={i.id}><div className="pro-product-icon">{i.image?<img src={i.image} alt={i.name}/>:i.name[0]}</div><div><small>{i.category}</small><strong>{i.name}</strong><b>{money(i.price)}</b><em>{settings?.vat_enabled!==false&&settings?.vat_inclusive!==false?`VAT inside ${money(vatInside(i.price))}`:(i.barcode||'No barcode')}</em></div><div className="product-actions"><label className="image-upload-btn">Photo<input type="file" accept="image/*" onChange={e=>e.target.files?.[0]&&saveImage(i,e.target.files[0])}/></label><button onClick={()=>delMenu(i.id)}>Disable</button></div></article>)}</div>
+      <div className="pro-product-grid">{menu.map(i=><article key={i.id}><div className="pro-product-icon">{i.image?<img src={i.image} alt={i.name}/>:i.name[0]}</div><div><small>{i.category}</small><strong>{i.name}</strong><b>{money(i.price)}</b><em>{settings?.vat_enabled!==false&&settings?.vat_inclusive!==false?`VAT inside ${money(vatInside(i.price))}`:(i.barcode||'No barcode')}</em></div><div className="product-actions"><label className="image-upload-btn">Photo<input type="file" accept="image/*" onChange={e=>e.target.files?.[0]&&saveImage(i,e.target.files[0])}/></label><button className="size-manage-btn" onClick={()=>manageSizes(i)}>+ Size</button><button onClick={()=>delMenu(i.id)}>Disable</button></div>{i.sizes?.length>0&&<div className="admin-size-list">{i.sizes.filter((s:any)=>s.active!==false).map((s:any)=><button key={s.id} onClick={()=>removeSize(s.id)}>{s.name} · {money(i.price+s.price_delta)} ×</button>)}</div>}</article>)}</div>
     </>}
 
     {tab==='inventory'&&<>

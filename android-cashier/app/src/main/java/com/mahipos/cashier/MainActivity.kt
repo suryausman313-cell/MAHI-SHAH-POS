@@ -514,18 +514,42 @@ class MainActivity : AppCompatActivity() {
         }
 
         fun bold(on: Boolean) {
+            // ESC E: emphasized ON/OFF
             add(0x1B, 0x45, if (on) 0x01 else 0x00)
         }
 
         fun size(width: Int, height: Int) {
+            // GS !: character width/height
             val w = (width.coerceIn(1, 8) - 1) shl 4
             val h = height.coerceIn(1, 8) - 1
             add(0x1D, 0x21, w or h)
         }
 
+        fun escMode(emphasized: Boolean, doubleHeight: Boolean, doubleWidth: Boolean) {
+            // ESC ! is supported by many generic 80mm ESC/POS printers.
+            var n = 0
+            if (emphasized) n = n or 0x08
+            if (doubleHeight) n = n or 0x10
+            if (doubleWidth) n = n or 0x20
+            add(0x1B, 0x21, n)
+        }
+
+        fun strongLarge() {
+            bold(true)
+            escMode(true, true, true)
+            size(2, 2)
+        }
+
+        fun strongNormal() {
+            bold(true)
+            escMode(true, false, false)
+            size(1, 1)
+        }
+
         fun resetText() {
             align(0)
             bold(false)
+            escMode(false, false, false)
             size(1, 1)
         }
 
@@ -550,23 +574,23 @@ class MainActivity : AppCompatActivity() {
 
                 when {
                     raw.startsWith("@SHOP|") -> {
-                        align(1); bold(true); size(2,2)
+                        align(1); strongLarge()
                         text(raw.substringAfter("|")); nl()
                         resetText()
                     }
                     raw.startsWith("@TITLE|") -> {
-                        align(1); bold(true); size(2,2)
+                        align(1); strongLarge()
                         text(raw.substringAfter("|")); nl()
                         resetText()
                         text("------------------------------------------"); nl()
                     }
                     raw.startsWith("@ORDER|") -> {
-                        align(0); bold(true); size(2,2)
+                        align(0); strongLarge()
                         text(raw.substringAfter("|")); nl()
                         resetText()
                     }
                     raw.startsWith("@META|") -> {
-                        bold(true)
+                        strongNormal()
                         text(raw.substringAfter("|")); nl()
                         resetText()
                     }
@@ -575,12 +599,12 @@ class MainActivity : AppCompatActivity() {
                         text("=========================================="); nl()
                     }
                     raw.startsWith("@ITEM|") -> {
-                        align(0); bold(true); size(2,2)
+                        align(0); strongLarge()
                         text(raw.substringAfter("|")); nl()
                         resetText()
                     }
                     raw.startsWith("@SIZE|") -> {
-                        bold(true)
+                        strongNormal()
                         text("   " + raw.substringAfter("|")); nl()
                         resetText()
                     }
@@ -588,7 +612,7 @@ class MainActivity : AppCompatActivity() {
                         text("   " + raw.substringAfter("|")); nl()
                     }
                     raw.startsWith("@NOTE|") -> {
-                        bold(true); size(1,2)
+                        bold(true); escMode(true, true, false); size(1,2)
                         text("   " + raw.substringAfter("|")); nl()
                         resetText()
                     }
@@ -597,7 +621,7 @@ class MainActivity : AppCompatActivity() {
                         text("------------------------------------------"); nl()
                     }
                     raw.startsWith("@FOOT|") -> {
-                        align(1); bold(true)
+                        align(1); strongNormal()
                         text(raw.substringAfter("|")); nl()
                         resetText()
                     }
@@ -611,7 +635,7 @@ class MainActivity : AppCompatActivity() {
             for (i in 0 until lines.length()) {
                 val line = lines.optString(i, "")
                 if (i == 0) {
-                    align(1); bold(true); size(2,2)
+                    align(1); strongLarge()
                     text(line); nl()
                     resetText()
                 } else {

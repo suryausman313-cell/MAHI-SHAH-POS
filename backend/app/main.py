@@ -1,4 +1,4 @@
-from datetime import datetime, date, timedelta
+from datetime import datetime, timedelta, date, timedelta
 from typing import Optional, List, Any
 import json, os
 
@@ -382,6 +382,42 @@ def manager_check(db, pin):
     return staff
 
 
+
+def order_item_size_info(db, item):
+    """
+    OrderItem has no size_id/size_name DB columns.
+    The selected size is saved in OrderItem.name as:
+        "Product Name - Size Name"
+    Derive it safely from the current SizeOption rows.
+    """
+    menu_item = db.query(MenuItem).filter(MenuItem.id == item.menu_item_id).first()
+    if not menu_item:
+        return None, None, item.name
+
+    sizes = (
+        db.query(SizeOption)
+        .filter(SizeOption.menu_item_id == item.menu_item_id)
+        .order_by(SizeOption.id.asc())
+        .all()
+    )
+
+    display_name = str(item.name or menu_item.name or "")
+    for size in sorted(sizes, key=lambda x: len(str(x.name or "")), reverse=True):
+        suffix = " - " + str(size.name or "")
+        if display_name.lower().endswith(suffix.lower()):
+            return size.id, size.name, display_name[:-len(suffix)]
+
+    return None, None, menu_item.name or display_name
+
+
+def order_item_modifier_ids(item):
+    try:
+        mods = json.loads(item.modifiers or "[]")
+    except:
+        mods = []
+    return [int(x.get("id")) for x in mods if x.get("id") is not None]
+
+
 def order_to_dict(db, o):
     table = db.query(Table).filter(Table.id == o.table_id).first() if o.table_id else None
     waiter = db.query(Staff).filter(Staff.id == o.waiter_id).first() if o.waiter_id else None
@@ -399,9 +435,17 @@ def order_to_dict(db, o):
         "coupon_code": o.coupon_code, "delivery_address": o.delivery_address,
         "notes": o.notes, "created_at": o.created_at.isoformat(),
         "items": [{
-            "id": i.id, "menu_item_id": i.menu_item_id, "name": i.name,
-            "qty": i.qty, "unit_price": i.unit_price,
-            "modifiers": json.loads(i.modifiers or "[]"), "notes": i.notes
+            "id": i.id,
+            "menu_item_id": i.menu_item_id,
+            "name": order_item_size_info(db, i)[2],
+            "display_name": i.name,
+            "qty": i.qty,
+            "unit_price": i.unit_price,
+            "size_id": order_item_size_info(db, i)[0],
+            "size_name": order_item_size_info(db, i)[1],
+            "modifier_ids": order_item_modifier_ids(i),
+            "modifiers": json.loads(i.modifiers or "[]"),
+            "notes": i.notes
         } for i in o.items]
     }
 
@@ -409,37 +453,48 @@ def order_to_dict(db, o):
 
 def kitchen_print_lines(db, o):
     shop_name = get_setting(db, "shop_name", "MAHI POS")
+    waiter = db.query(Staff).filter(Staff.id == o.waiter_id).first() if o.waiter_id else None
+    local_dt = (o.created_at or datetime.utcnow()) + timedelta(hours=4)
+
     lines = [
-        shop_name,
-        "KITCHEN ORDER",
-        "--------------------------------",
-        f"Order #{o.id}  {str(o.order_type or '').upper()}",
+        f"@SHOP|{shop_name}",
+        "@TITLE|KITCHEN ORDER",
+        f"@ORDER|ORDER #{o.id}",
+        f"@META|{str(o.order_type or 'takeaway').upper()}  •  {local_dt.strftime('%I:%M %p')}",
     ]
 
-    waiter = db.query(Staff).filter(Staff.id == o.waiter_id).first() if o.waiter_id else None
     if waiter:
-        lines.append(f"Staff: {waiter.name}")
-
+        lines.append(f"@META|STAFF: {waiter.name}")
     if o.delivery_address:
-        lines.append(f"Delivery: {o.delivery_address}")
+        lines.append(f"@META|DELIVERY: {o.delivery_address}")
 
-    lines.append("--------------------------------")
+    lines.append("@SEP|")
 
     for item in o.items:
-        lines.append(f"{item.qty} x {item.name}")
+        qty = float(item.qty or 0)
+        size_id, size_name, base_name = order_item_size_info(db, item)
+        item_name = str(base_name or item.name or "Item").upper()
+        lines.append(f"@ITEM|{qty:g}  ×  {item_name}")
+
+        if size_name:
+            lines.append(f"@SIZE|SIZE: {str(size_name).upper()}")
+
         try:
             mods = json.loads(item.modifiers or "[]")
         except:
             mods = []
-        for m in mods:
-            lines.append(f"  + {m.get('name','')}")
-        if item.notes:
-            lines.append(f"  NOTE: {item.notes}")
 
-    lines += [
-        "--------------------------------",
-        datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
-    ]
+        for mod in mods:
+            name = str(mod.get("name", "")).strip()
+            if name:
+                lines.append(f"@MOD|+ {name}")
+
+        if item.notes:
+            lines.append(f"@NOTE|NOTE: {item.notes}")
+
+        lines.append("@ITEMSEP|")
+
+    lines.append(f"@FOOT|#{o.id}  •  {local_dt.strftime('%d/%m/%Y %I:%M %p')}")
     return lines
 
 
@@ -496,7 +551,8 @@ def receipt_print_lines(db, o):
     lines.append("-" * width)
 
     for item in o.items:
-        name = str(item.name or "Item")
+        size_id, size_name, base_name = order_item_size_info(db, item)
+        name = str(base_name or item.name or "Item")
         qty = float(item.qty or 0)
         unit = float(item.unit_price or 0)
         total = qty * unit
@@ -504,8 +560,8 @@ def receipt_print_lines(db, o):
         lines.append(lr(name.upper(), f"AED {total:.2f}"))
 
         qty_text = f"{qty:g} x AED {unit:.2f}"
-        if item.size_name:
-            qty_text += f"  {item.size_name}"
+        if size_name:
+            qty_text += f"  {size_name}"
         lines.append(qty_text[:width])
 
         try:
@@ -571,7 +627,7 @@ def enqueue_print_job(db, order=None, kind="kitchen", lines=None):
         "port": printer_port,
         "lines": lines or [],
         "cut": True,
-        "logo_data_url": receipt_logo_data(db) if kind == "receipt" else "",
+        "logo_data_url": receipt_logo_data(db) if kind in {"receipt", "kitchen"} else "",
         "receipt_style": "professional" if kind == "receipt" else "kitchen",
     }
 
@@ -1892,6 +1948,23 @@ def pending_payment_orders():
         d = order_to_dict(db, o)
         d["payment_status"] = "pending"
         out.append(d)
+    db.close()
+    return out
+
+
+
+@app.get("/orders/pending-payment/{order_id}")
+def pending_payment_order(order_id: int):
+    db = db_session()
+    o = db.query(Order).filter(Order.id == order_id).first()
+    if not o:
+        db.close()
+        raise HTTPException(404, "Order not found")
+    if o.status != "held":
+        db.close()
+        raise HTTPException(400, "Order is not pending payment")
+    out = order_to_dict(db, o)
+    out["payment_status"] = "pending"
     db.close()
     return out
 

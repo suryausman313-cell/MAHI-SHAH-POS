@@ -176,6 +176,9 @@ class MainActivity : AppCompatActivity() {
             val logoDataUrl =
                 job.optString("logo_data_url", "")
 
+            val receiptStyle =
+                job.optString("receipt_style", "professional")
+
             if (ip.isBlank()) {
                 throw Exception(
                     "Printer IP missing in print job"
@@ -186,7 +189,8 @@ class MainActivity : AppCompatActivity() {
                 buildEscPos(
                     lines,
                     cut,
-                    logoDataUrl
+                    logoDataUrl,
+                    receiptStyle
                 )
 
             sendRaw(
@@ -357,6 +361,9 @@ class MainActivity : AppCompatActivity() {
                 val logoDataUrl =
                     data.optString("logo_data_url", "")
 
+                val receiptStyle =
+                    data.optString("receipt_style", "professional")
+
                 if (ip.isBlank()) {
                     return JSONObject()
                         .put("ok", false)
@@ -371,7 +378,8 @@ class MainActivity : AppCompatActivity() {
                     buildEscPos(
                         lines,
                         cut,
-                        logoDataUrl
+                        logoDataUrl,
+                        receiptStyle
                     )
 
                 sendRaw(
@@ -479,142 +487,147 @@ class MainActivity : AppCompatActivity() {
     private fun buildEscPos(
         lines: JSONArray,
         cut: Boolean,
-        logoDataUrl: String = ""
+        logoDataUrl: String = "",
+        receiptStyle: String = "professional"
     ): ByteArray {
 
-        val out =
-            ArrayList<Byte>()
+        val out = ArrayList<Byte>()
 
-        fun add(
-            vararg bytes: Int
-        ) {
-            bytes.forEach {
-                out.add(
-                    it.toByte()
-                )
-            }
+        fun add(vararg bytes: Int) {
+            bytes.forEach { out.add(it.toByte()) }
         }
 
-        fun addText(
-            text: String
-        ) {
-            text
-                .toByteArray(
-                    Charset.forName(
-                        "UTF-8"
-                    )
-                )
-                .forEach {
-                    out.add(it)
-                }
+        fun addBytes(bytes: ByteArray) {
+            bytes.forEach { out.add(it) }
         }
 
-        /*
-         * Initialize
-         */
-        add(
-            0x1B,
-            0x40
-        )
+        fun text(value: String) {
+            value.toByteArray(Charset.forName("UTF-8")).forEach { out.add(it) }
+        }
+
+        fun nl(count: Int = 1) {
+            repeat(count) { text("\n") }
+        }
+
+        fun align(value: Int) {
+            add(0x1B, 0x61, value)
+        }
+
+        fun bold(on: Boolean) {
+            add(0x1B, 0x45, if (on) 0x01 else 0x00)
+        }
+
+        fun size(width: Int, height: Int) {
+            val w = (width.coerceIn(1, 8) - 1) shl 4
+            val h = height.coerceIn(1, 8) - 1
+            add(0x1D, 0x21, w or h)
+        }
+
+        fun resetText() {
+            align(0)
+            bold(false)
+            size(1, 1)
+        }
+
+        add(0x1B, 0x40)
 
         if (logoDataUrl.isNotBlank()) {
             try {
                 val bitmap = decodeLogoBitmap(logoDataUrl)
                 if (bitmap != null) {
-                    add(0x1B, 0x61, 0x01)
-                    bitmapToEscPos(bitmap).forEach { out.add(it) }
-                    addText("\n")
-                    add(0x1B, 0x61, 0x00)
+                    align(1)
+                    addBytes(bitmapToEscPos(bitmap))
+                    nl()
+                    align(0)
                 }
             } catch (_: Exception) {
             }
         }
 
-        for (
-            i in
-            0 until lines.length()
-        ) {
+        if (receiptStyle == "kitchen") {
+            for (i in 0 until lines.length()) {
+                val raw = lines.optString(i, "")
 
-            val line =
-                lines.optString(
-                    i,
-                    ""
-                )
-
-            /*
-             * First line:
-             * centered + bold +
-             * double size.
-             */
-            if (i == 0) {
-
-                add(
-                    0x1B,
-                    0x61,
-                    0x01
-                )
-
-                add(
-                    0x1B,
-                    0x45,
-                    0x01
-                )
-
-                add(
-                    0x1D,
-                    0x21,
-                    0x11
-                )
-
-                addText(line)
-                addText("\n")
-
-                add(
-                    0x1D,
-                    0x21,
-                    0x00
-                )
-
-                add(
-                    0x1B,
-                    0x45,
-                    0x00
-                )
-
-                add(
-                    0x1B,
-                    0x61,
-                    0x00
-                )
-
-            } else {
-
-                addText(line)
-                addText("\n")
+                when {
+                    raw.startsWith("@SHOP|") -> {
+                        align(1); bold(true); size(2,2)
+                        text(raw.substringAfter("|")); nl()
+                        resetText()
+                    }
+                    raw.startsWith("@TITLE|") -> {
+                        align(1); bold(true); size(2,2)
+                        text(raw.substringAfter("|")); nl()
+                        resetText()
+                        text("------------------------------------------"); nl()
+                    }
+                    raw.startsWith("@ORDER|") -> {
+                        align(0); bold(true); size(2,2)
+                        text(raw.substringAfter("|")); nl()
+                        resetText()
+                    }
+                    raw.startsWith("@META|") -> {
+                        bold(true)
+                        text(raw.substringAfter("|")); nl()
+                        resetText()
+                    }
+                    raw.startsWith("@SEP|") -> {
+                        resetText()
+                        text("=========================================="); nl()
+                    }
+                    raw.startsWith("@ITEM|") -> {
+                        align(0); bold(true); size(2,2)
+                        text(raw.substringAfter("|")); nl()
+                        resetText()
+                    }
+                    raw.startsWith("@SIZE|") -> {
+                        bold(true)
+                        text("   " + raw.substringAfter("|")); nl()
+                        resetText()
+                    }
+                    raw.startsWith("@MOD|") -> {
+                        text("   " + raw.substringAfter("|")); nl()
+                    }
+                    raw.startsWith("@NOTE|") -> {
+                        bold(true); size(1,2)
+                        text("   " + raw.substringAfter("|")); nl()
+                        resetText()
+                    }
+                    raw.startsWith("@ITEMSEP|") -> {
+                        resetText()
+                        text("------------------------------------------"); nl()
+                    }
+                    raw.startsWith("@FOOT|") -> {
+                        align(1); bold(true)
+                        text(raw.substringAfter("|")); nl()
+                        resetText()
+                    }
+                    else -> {
+                        resetText()
+                        text(raw); nl()
+                    }
+                }
+            }
+        } else {
+            for (i in 0 until lines.length()) {
+                val line = lines.optString(i, "")
+                if (i == 0) {
+                    align(1); bold(true); size(2,2)
+                    text(line); nl()
+                    resetText()
+                } else {
+                    text(line); nl()
+                }
             }
         }
 
-        addText(
-            "\n\n\n"
-        )
+        nl(4)
 
         if (cut) {
-            add(
-                0x1D,
-                0x56,
-                0x00
-            )
+            add(0x1D, 0x56, 0x00)
         }
 
         return out.toByteArray()
     }
-
-    /*
-     * ============================================================
-     * RAW LAN SOCKET -> THERMAL PRINTER
-     * ============================================================
-     */
-
 
     private fun decodeLogoBitmap(
         dataUrl: String

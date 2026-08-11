@@ -1013,3 +1013,19 @@ button{cursor:pointer}
   font-weight:800;
 }
 .vat-period-line{display:flex;align-items:center;gap:9px;margin:12px 0;padding:10px 12px;border-radius:10px;background:#f7f9fc;font-size:12px}.vat-period-line span{color:#8a96a6}.vat-period-line strong{margin-left:auto}.vat-order-preview{margin-top:14px;border:1px solid #e2e7ee;border-radius:12px;overflow:hidden}.vat-order-head,.vat-order-row{display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;padding:10px 12px}.vat-order-head{background:#f5f7fa}.vat-order-head span{grid-column:2/4;color:#7b8797;font-size:11px}.vat-order-row{border-top:1px solid #edf0f4;font-size:12px}.vat-order-row>span:first-child{display:flex;flex-direction:column}.vat-order-row small{color:#8390a1;margin-top:2px}.vat-order-row strong{font-size:13px}
+
+/* PENDING PAYMENT -> MAIN ORDER SCREEN */
+.pending-order-actions{
+  grid-template-columns:1fr auto!important;
+}
+.pending-order-actions .pending-pay-btn{
+  min-height:52px!important;
+  text-align:left!important;
+  padding:10px 14px!important;
+  font-size:15px!important;
+  font-weight:900!important;
+}
+.pending-order-actions .held-cancel-btn{
+  min-height:52px!important;
+  min-width:82px!important;
+}

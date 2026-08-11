@@ -221,7 +221,6 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
       )
       setShiftOpenModal(false)
       await load()
-      alert('Shift opened #'+s.id)
     }catch(e:any){
       alert(e.message)
     }
@@ -297,12 +296,6 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
 
       await load()
 
-      alert(
-        kind==='in'
-          ?'Cash In saved'
-          :'Cash Out saved'
-      )
-
     }catch(e:any){
       alert(e.message)
     }
@@ -337,8 +330,6 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
         }
       )
 
-      alert('Expense saved')
-
     }catch(e:any){
       alert(e.message)
     }
@@ -349,7 +340,6 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
 
     try{
       await openCashDrawer(settings)
-      alert('Cash drawer opened')
 
     }catch(e:any){
       alert(e.message)
@@ -360,7 +350,6 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
     try{
       await api('/sync/menu',{method:'POST'})
       await load()
-      alert('Menu synced')
     }catch(e:any){
       alert(e.message)
     }
@@ -520,10 +509,6 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
         }
       }
 
-      if(!hold){
-        alert(`Order #${created.id} saved`)
-      }
-
       await load()
 
     }catch(e:any){
@@ -660,7 +645,6 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
       )
 
       await load()
-      alert(`Held order #${id} cancelled`)
     }catch(e:any){
       alert(e.message)
     }
@@ -676,10 +660,6 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
       )
 
       await load()
-
-      alert(
-        `Order #${id} recalled`
-      )
 
     }catch(e:any){
       alert(e.message)

@@ -43,6 +43,7 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
   const [managerPinInput,setManagerPinInput]=useState('')
   const [sizePicker,setSizePicker]=useState<MenuItem|null>(null)
   const [selectedSizes,setSelectedSizes]=useState<Record<number,{id:number;name:string;price_delta:number}>>({})
+  const [editingPendingId,setEditingPendingId]=useState<number|null>(null)
 
   const load=async()=>{
     const [m,st]=await Promise.all([api<MenuItem[]>('/menu'),api<Settings>('/settings')])
@@ -519,11 +520,9 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
         }
       }
 
-      alert(
-        hold
-          ?`Order #${created.id} sent to kitchen · payment pending`
-          :`Order #${created.id} saved`
-      )
+      if(!hold){
+        alert(`Order #${created.id} saved`)
+      }
 
       await load()
 
@@ -535,34 +534,83 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
     }
   }
 
-  const payPending=async(order:any)=>{
-    const method=(prompt('Payment method: cash / card / split','cash')||'').toLowerCase().trim()
-    if(!['cash','card','split'].includes(method))return
+  const openPendingOrder=async(order:any)=>{
+    try{
+      const full:any=await api(`/orders/pending-payment/${order.id}`)
 
-    let cash_paid:number|undefined
-    let card_paid:number|undefined
+      const nextCart:Record<number,number>={}
+      const nextMods:Record<number,number[]>={}
+      const nextSizes:Record<number,{id:number;name:string;price_delta:number}>={}
 
-    if(method==='split'){
-      const c=prompt('Cash amount AED')
-      if(c===null)return
-      const k=prompt('Card amount AED')
-      if(k===null)return
-      cash_paid=+c||0
-      card_paid=+k||0
+      for(const line of full.items||[]){
+        const menuId=Number(line.menu_item_id||line.id||0)
+        if(!menuId)continue
+
+        nextCart[menuId]=Number(line.qty||1)
+
+        if(Array.isArray(line.modifier_ids)){
+          nextMods[menuId]=line.modifier_ids.map((x:any)=>Number(x))
+        }
+
+        if(line.size_id){
+          const menuItem=menu.find(x=>x.id===menuId)
+          const size=menuItem?.sizes?.find((x:any)=>x.id===Number(line.size_id))
+          if(size){
+            nextSizes[menuId]={
+              id:size.id,
+              name:size.name,
+              price_delta:Number(size.price_delta||0)
+            }
+          }
+        }
+      }
+
+      setCart(nextCart)
+      setMods(nextMods)
+      setSelectedSizes(nextSizes)
+      setType(full.order_type||'takeaway')
+      setDiscount(Number(full.discount||0))
+      setCustomerId(full.customer_id||undefined)
+      setDeliveryAddress(full.delivery_address||'')
+      setEditingPendingId(full.id)
+      setPay('cash')
+      setCashPaid(0)
+      setCardPaid(0)
+      setCashierMenuOpen(false)
+    }catch(e:any){
+      alert(e.message)
+    }
+  }
+
+  const completePendingPayment=async()=>{
+    if(!editingPendingId)return false
+
+    if(
+      pay==='split' &&
+      Math.abs((cashPaid+cardPaid)-total)>.01
+    ){
+      alert('Cash + Card must equal total')
+      return true
     }
 
+    setSaving(true)
+
     try{
-      await api(`/orders/${order.id}/pay`,{
+      await api(`/orders/${editingPendingId}/pay`,{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
-          payment_method:method,
-          cash_paid,
-          card_paid
+          payment_method:pay,
+          cash_paid:pay==='split'?cashPaid:undefined,
+          card_paid:pay==='split'?cardPaid:undefined
         })
       })
 
-      if(method==='cash'&&settings?.auto_cash_drawer!==false&&settings){
+      if(
+        pay==='cash' &&
+        settings?.auto_cash_drawer!==false &&
+        settings
+      ){
         try{
           await openCashDrawer(settings)
         }catch(e:any){
@@ -570,11 +618,23 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
         }
       }
 
+      setCart({})
+      setMods({})
+      setSelectedSizes({})
+      setDiscount(0)
+      setCashPaid(0)
+      setCardPaid(0)
+      setDeliveryAddress('')
+      setCustomerId(undefined)
+      setEditingPendingId(null)
+
       await load()
-      alert(`Order #${order.id} payment completed`)
-      setCashierMenuOpen(false)
+      return true
     }catch(e:any){
       alert(e.message)
+      return true
+    }finally{
+      setSaving(false)
     }
   }
 
@@ -1056,7 +1116,9 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
             </span>
 
             <strong>
-              {type}
+              {editingPendingId
+                ?`Pending #${editingPendingId}`
+                :type}
             </strong>
           </div>
 
@@ -1066,6 +1128,7 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
               setCart({})
               setMods({})
               setSelectedSizes({})
+              setEditingPendingId(null)
             }}
           >
             Clear
@@ -1331,14 +1394,20 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
 
               <button
                 className="pay-button"
-                onClick={()=>
-                  submit(false)
-                }
+                onClick={async()=>{
+                  if(editingPendingId){
+                    await completePendingPayment()
+                  }else{
+                    await submit(false)
+                  }
+                }}
                 disabled={saving}
               >
                 {saving
                   ?'Saving...'
-                  :`PAYMENT · ${money(total)}`}
+                  :editingPendingId
+                    ?`COMPLETE PAYMENT #${editingPendingId} · ${money(total)}`
+                    :`PAYMENT · ${money(total)}`}
               </button>
 
             </>
@@ -1488,18 +1557,9 @@ export default function OrderBuilder({waiterMode=false,cashierCompact=false}:{wa
                     <div className="held-order-actions pending-order-actions" key={h.id}>
                       <button
                         className="pending-pay-btn"
-                        onClick={()=>payPending(h)}
+                        onClick={()=>openPendingOrder(h)}
                       >
-                        PAY #{h.id} · {money(h.total)}
-                      </button>
-
-                      <button
-                        onClick={()=>{
-                          recall(h.id)
-                          setCashierMenuOpen(false)
-                        }}
-                      >
-                        Edit
+                        ORDER #{h.id} · {money(h.total)}
                       </button>
 
                       <button
